@@ -1,37 +1,37 @@
 /*
 Copyright © 2025 NAME HERE <EMAIL ADDRESS>
-
 */
 package cmd
 
 import (
-    "fmt"
+	"fmt"
 	"log"
+
 	"github.com/spf13/cobra"
 )
 
 // folderCmd represents the folder command
-var folderCmd = &cobra.Command{
+var nextcloudCmd = &cobra.Command{
 	Use:   "nextcloud",
 	Short: "Creation of folders",
-	Long: `Creation of folders for the project and other tools.`,
+	Long:  `Creation of folders for the project and other tools.`,
 	// Run: func(cmd *cobra.Command, args []string) {},
 }
 
-var listCmd = &cobra.Command{
+var listNextcloudCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List folders",
 	Long:  `List all folders in Nextcloud`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) == 0 {
-			listFolders("/")
+			listNextcloud("/")
 		} else {
-			listFolders("/" + args[0])
+			listNextcloud("/" + args[0])
 		}
 	},
 }
 
-func listFolders(path string) {
+func listNextcloud(path string) {
 	client := InitializeNextcloud()
 
 	if err := client.Connect(); err != nil {
@@ -47,6 +47,6 @@ func listFolders(path string) {
 }
 
 func init() {
-	rootCmd.AddCommand(folderCmd)
-	folderCmd.AddCommand(listCmd)
+	RootCmd.AddCommand(nextcloudCmd)
+	nextcloudCmd.AddCommand(listNextcloudCmd)
 }

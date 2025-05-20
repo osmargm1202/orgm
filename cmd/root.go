@@ -6,26 +6,42 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/osmargm1202/orgm/inputs"
+	"github.com/osmargm1202/orgm/cmd/adm"
+	"github.com/osmargm1202/orgm/cmd/misc"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
-var cfgFile string
+var version = "v0.132"
 
-var rootCmd = &cobra.Command{
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Show the version of the application",
+	Run: func(cmd *cobra.Command, args []string) {
+		versionFunc()
+	},
+}
+
+func versionFunc() {
+	fmt.Println(inputs.InfoStyle.Render("Versión: " + version))
+}
+
+var RootCmd = &cobra.Command{
 	Use:   "orgm",
 	Short: "CLI de ORGM para funciones de la organizacion",
-	Long:  `Funcionalidades de la organizacion ORGM para manejo de usuarios, roles, permisos, IA, Adminitracion, Calculos, Proyectos, Fichas, Tecnias, Facturas.`,
+	Long:  `Herramientas de la organizacion ORGM.`,
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
 	// Run: func(cmd *cobra.Command, args []string) { },
-	// Run: DockerCmd,
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
-// This is called by main.main(). It only needs to happen once to the rootCmd.
+// This is called by main.main(). It only needs to happen once to the RootCmd.
 func Execute() {
-	err := rootCmd.Execute()
+	// Check for -v or --version before executing the command tree
+
+	err := RootCmd.Execute()
 	if err != nil {
 		os.Exit(1)
 	}
@@ -33,17 +49,15 @@ func Execute() {
 
 func init() {
 	cobra.OnInitialize(initConfig)
-
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.config/orgm/config.toml)")
-	rootCmd.PersistentFlags().StringP("author", "a", "osmargm1202", "author name for copyright attribution")
-	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
-	viper.BindPFlag("author", rootCmd.PersistentFlags().Lookup("author"))
-	viper.SetDefault("author", "osmargm1202 <osmargm1202@gmail.com>")
-	// Add docker command to root command
+	RootCmd.AddCommand(versionCmd)
+	RootCmd.AddCommand(adm.AdmCmd)
+	RootCmd.AddCommand(misc.MiscCmd)
+	RootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 
 }
 
 func initConfig() {
+
 	viper.SetConfigName("config")
 	viper.SetConfigType("toml")
 	viper.ReadInConfig()

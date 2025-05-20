@@ -38,7 +38,7 @@ func InitializeApi() (string, map[string]string) {
 	// Get API URL from config
 	apiURL := viper.GetString("url.apis")
 	if apiURL == "" {
-		log.Fatal("Error: url.api is not defined in config file")
+		log.Fatal("Error: url.apis is not defined in config file")
 		return "", nil
 	}
 
@@ -51,6 +51,7 @@ func InitializeApi() (string, map[string]string) {
 
 	return apiURL, headers
 }
+
 
 // configCmd represents the config command
 var configCmd = &cobra.Command{
@@ -110,64 +111,7 @@ func EditConfig(editor string) {
 
 }
 
-func CopyConfig() {
-	// Get config path from viper
-	configPath := viper.GetString("config_path")
-	if configPath == "" {
-		log.Fatal("Error: config_path is not defined")
-		return
-	}
-
-	// Create config directory if it doesn't exist
-	if err := os.MkdirAll(configPath, 0755); err != nil {
-		log.Fatalf("Error creating config directory: %v", err)
-		return
-	}
-
-	// Download and copy config files from GitHub
-	configFiles := []string{
-		"config.toml",
-		"config.example.toml",
-	}
-
-	baseURL := "https://raw.githubusercontent.com/osmargm1202/orgm/main/configs/"
-
-	for _, file := range configFiles {
-		// Download file from GitHub
-		resp, err := http.Get(baseURL + file)
-		if err != nil {
-			log.Printf("Error downloading %s: %v", file, err)
-			continue
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			log.Printf("Error downloading %s: status code %d", file, resp.StatusCode)
-			continue
-		}
-
-		// Create destination file
-		destPath := filepath.Join(configPath, file)
-		destFile, err := os.Create(destPath)
-		if err != nil {
-			log.Printf("Error creating %s: %v", destPath, err)
-			continue
-		}
-		defer destFile.Close()
-
-		// Copy content
-		if _, err := io.Copy(destFile, resp.Body); err != nil {
-			log.Printf("Error copying %s: %v", file, err)
-			continue
-		}
-
-		fmt.Printf("Successfully copied %s to %s\n", file, destPath)
-	}
-}
-
-
 func init() {
-	rootCmd.AddCommand(configCmd)
+	RootCmd.AddCommand(configCmd)
 
 }
-

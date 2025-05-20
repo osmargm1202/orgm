@@ -84,4 +84,3 @@ func DivisaUSD(desde string, a string, cantidad float64) (float64, error) {
 
 	return response.Resultado, nil
 }
-

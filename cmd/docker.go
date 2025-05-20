@@ -11,37 +11,18 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/joho/godotenv"
+	"github.com/osmargm1202/orgm/inputs"
 	"github.com/spf13/cobra"
-)
-
-// Estilos para el menú
-var (
-	titleStyle        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FAFAFA")).Background(lipgloss.Color("#7D56F4")).Padding(0, 1)
-	subtitleStyle     = lipgloss.NewStyle().Italic(true).Foreground(lipgloss.Color("#ABABAB"))
-	cursorStyle       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7D56F4"))
-	checkedStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#73F59F"))
-	uncheckedStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#F27878"))
-	itemStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF"))
-	selectedItemStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#74ACDF"))
-	descriptionStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	helpStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("#6A6A6A")).Italic(true)
-
-	// Estilos para los mensajes de salida
-	successStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#73F59F"))
-	errorStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F27878"))
-	infoStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#7D56F4"))
-	warningStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFAB26"))
-	commandStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#3B9FEF"))
 )
 
 // Helper function to load environment variables from .env file
 func loadLocalEnv() error {
 	dotenvPath := filepath.Join(".", ".env")
 	if _, err := os.Stat(dotenvPath); os.IsNotExist(err) {
-		return fmt.Errorf("%s", errorStyle.Render(".env file not found in the current directory"))
+		return fmt.Errorf("%s", inputs.ErrorStyle.Render(".env file not found in the current directory"))
 	}
 
-	fmt.Printf("%s\n", infoStyle.Render("Loading environment from .env file"))
+	fmt.Printf("%s\n", inputs.InfoStyle.Render("Loading environment from .env file"))
 	return godotenv.Load(dotenvPath)
 }
 
@@ -57,8 +38,8 @@ func requireVars(vars []string) error {
 
 	if len(missing) > 0 {
 		return fmt.Errorf("%s: %s",
-			errorStyle.Render("Missing required environment variables"),
-			warningStyle.Render(strings.Join(missing, ", ")))
+			inputs.ErrorStyle.Render("Missing required environment variables"),
+			inputs.WarningStyle.Render(strings.Join(missing, ", ")))
 	}
 
 	return nil
@@ -86,7 +67,7 @@ func dockerCmd(args []string, inputText string) error {
 	return cmd.Run()
 }
 
-func buildCmd() *cobra.Command {
+func DbuildCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "build",
 		Short: "Build Docker image",
@@ -103,13 +84,13 @@ func buildCmd() *cobra.Command {
 			tag := os.Getenv("DOCKER_IMAGE_TAG")
 			image := fmt.Sprintf("%s/%s:%s", os.Getenv("DOCKER_USER"), os.Getenv("DOCKER_IMAGE_NAME"), tag)
 
-			fmt.Printf("%s\n", infoStyle.Render("Building image: "+image))
+			fmt.Printf("%s\n", inputs.InfoStyle.Render("Building image: "+image))
 			return dockerCmd([]string{"docker", "build", "-t", image, "."}, "")
 		},
 	}
 }
 
-func buildNoCacheCmd() *cobra.Command {
+func DbuildNoCacheCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "build-no-cache",
 		Short: "Build Docker image without cache",
@@ -126,13 +107,13 @@ func buildNoCacheCmd() *cobra.Command {
 			tag := os.Getenv("DOCKER_IMAGE_TAG")
 			image := fmt.Sprintf("%s/%s:%s", os.Getenv("DOCKER_USER"), os.Getenv("DOCKER_IMAGE_NAME"), tag)
 
-			fmt.Printf("%s\n", infoStyle.Render("Building image without cache: "+image))
+			fmt.Printf("%s\n", inputs.InfoStyle.Render("Building image without cache: "+image))
 			return dockerCmd([]string{"docker", "build", "--no-cache", "-t", image, "."}, "")
 		},
 	}
 }
 
-func saveCmd() *cobra.Command {
+func DsaveCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "save",
 		Short: "Save Docker image to file",
@@ -161,13 +142,13 @@ func saveCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Printf("%s\n", infoStyle.Render("Saving image to: "+savePath))
+			fmt.Printf("%s\n", inputs.InfoStyle.Render("Saving image to: "+savePath))
 			return dockerCmd([]string{"docker", "save", "-o", savePath, image}, "")
 		},
 	}
 }
 
-func pushCmd() *cobra.Command {
+func DpushCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "push",
 		Short: "Push Docker image",
@@ -184,13 +165,13 @@ func pushCmd() *cobra.Command {
 			tag := os.Getenv("DOCKER_IMAGE_TAG")
 			image := fmt.Sprintf("%s/%s/%s:%s", os.Getenv("DOCKER_URL"), os.Getenv("DOCKER_USER"), os.Getenv("DOCKER_IMAGE_NAME"), tag)
 
-			fmt.Printf("%s\n", infoStyle.Render("Pushing image: "+image))
+			fmt.Printf("%s\n", inputs.InfoStyle.Render("Pushing image: "+image))
 			return dockerCmd([]string{"docker", "push", image}, "")
 		},
 	}
 }
 
-func tagCmd() *cobra.Command {
+func DtagCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "tag",
 		Short: "Tag Docker image",
@@ -207,13 +188,13 @@ func tagCmd() *cobra.Command {
 			current := fmt.Sprintf("%s/%s:%s", os.Getenv("DOCKER_USER"), os.Getenv("DOCKER_IMAGE_NAME"), os.Getenv("DOCKER_IMAGE_TAG"))
 			target := fmt.Sprintf("%s/%s/%s:latest", os.Getenv("DOCKER_URL"), os.Getenv("DOCKER_USER"), os.Getenv("DOCKER_IMAGE_NAME"))
 
-			fmt.Printf("%s\n", infoStyle.Render("Tagging image: "+current+" → "+target))
+			fmt.Printf("%s\n", inputs.InfoStyle.Render("Tagging image: "+current+" → "+target))
 			return dockerCmd([]string{"docker", "tag", current, target}, "")
 		},
 	}
 }
 
-func createProdContextCmd() *cobra.Command {
+func DcreateProdContextCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "create-prod-context",
 		Short: "Create prod Docker context",
@@ -229,13 +210,13 @@ func createProdContextCmd() *cobra.Command {
 
 			hostStr := fmt.Sprintf("ssh://%s@%s", os.Getenv("DOCKER_HOST_USER"), os.Getenv("DOCKER_HOST_IP"))
 
-			fmt.Printf("%s\n", infoStyle.Render("Creating prod context: "+hostStr))
+			fmt.Printf("%s\n", inputs.InfoStyle.Render("Creating prod context: "+hostStr))
 			return dockerCmd([]string{"docker", "context", "create", "prod", "--docker", fmt.Sprintf("host=%s", hostStr)}, "")
 		},
 	}
 }
 
-func removeProdContextCmd() *cobra.Command {
+func DremoveProdContextCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "remove-prod-context",
 		Short: "Remove prod Docker context",
@@ -245,13 +226,13 @@ func removeProdContextCmd() *cobra.Command {
 				return err
 			}
 
-			fmt.Printf("%s\n", infoStyle.Render("Removing prod context..."))
+			fmt.Printf("%s\n", inputs.InfoStyle.Render("Removing prod context..."))
 			return dockerCmd([]string{"docker", "context", "rm", "prod"}, "")
 		},
 	}
 }
 
-func deployCmd() *cobra.Command {
+func DdeployCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "deploy",
 		Short: "Deploy application",
@@ -267,12 +248,12 @@ func deployCmd() *cobra.Command {
 
 			image := fmt.Sprintf("%s/%s/%s:latest", os.Getenv("DOCKER_URL"), os.Getenv("DOCKER_USER"), os.Getenv("DOCKER_IMAGE_NAME"))
 
-			fmt.Printf("%s\n", infoStyle.Render("Deploying to prod context..."))
+			fmt.Printf("%s\n", inputs.InfoStyle.Render("Deploying to prod context..."))
 
 			// Check if prod context exists
 			checkCmd := exec.Command("docker", "context", "inspect", "prod")
 			if err := checkCmd.Run(); err != nil {
-				fmt.Printf("%s\n", warningStyle.Render("Prod context doesn't exist. Creating it..."))
+				fmt.Printf("%s\n", inputs.WarningStyle.Render("Prod context doesn't exist. Creating it..."))
 
 				if err := requireVars([]string{"DOCKER_HOST_USER", "DOCKER_HOST_IP"}); err != nil {
 					return fmt.Errorf("could not create prod context: %v", err)
@@ -285,19 +266,19 @@ func deployCmd() *cobra.Command {
 			}
 
 			// Pull the image
-			fmt.Printf("%s\n", infoStyle.Render("Pulling image: "+image))
+			fmt.Printf("%s\n", inputs.InfoStyle.Render("Pulling image: "+image))
 			if err := dockerCmd([]string{"docker", "--context", "prod", "pull", image}, ""); err != nil {
 				return err
 			}
 
 			// Deploy with docker compose
-			fmt.Printf("%s\n", infoStyle.Render("Starting containers with docker compose..."))
+			fmt.Printf("%s\n", inputs.InfoStyle.Render("Starting containers with docker compose..."))
 			return dockerCmd([]string{"docker", "--context", "prod", "compose", "up", "-d", "--remove-orphans"}, "")
 		},
 	}
 }
 
-func loginCmd() *cobra.Command {
+func DloginCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "login",
 		Short: "Login to Docker registry",
@@ -310,7 +291,7 @@ func loginCmd() *cobra.Command {
 			dockerHubUrl := os.Getenv("DOCKER_URL")
 			dockerHubUser := os.Getenv("DOCKER_USER")
 
-			fmt.Printf("%s ", infoStyle.Render("Enter Docker Hub password:"))
+			fmt.Printf("%s ", inputs.InfoStyle.Render("Enter Docker Hub password:"))
 			reader := bufio.NewReader(os.Stdin)
 			password, err := reader.ReadString('\n')
 			if err != nil {
@@ -322,166 +303,51 @@ func loginCmd() *cobra.Command {
 				return fmt.Errorf("a password is required to continue")
 			}
 
-			fmt.Printf("%s\n", infoStyle.Render("Logging in to "+dockerHubUrl+"..."))
+			fmt.Printf("%s\n", inputs.InfoStyle.Render("Logging in to "+dockerHubUrl+"..."))
 			return dockerCmd([]string{"docker", "login", dockerHubUrl, "-u", dockerHubUser, "--password-stdin"}, password)
 		},
 	}
 }
 
-// Bubble tea model for Docker menu
-type item struct {
-	title       string
-	description string
-	value       string
-	checked     bool
+var choices = []inputs.ItemMS{
+	{Title: " Build", Description: "Build Docker image using cache", Value: "build", Checked: false},
+	{Title: " Build (sin cache)", Description: "Build Docker image without cache", Value: "build_no_cache", Checked: false},
+	{Title: " Tag", Description: "Tag Docker image with latest tag", Value: "tag", Checked: false},
+	{Title: " Save", Description: "Save Docker image to a tar file", Value: "save", Checked: false},
+	{Title: " Push", Description: "Push Docker image to registry", Value: "push", Checked: false},
+	{Title: " Deploy", Description: "Deploy application to prod", Value: "deploy", Checked: false},
+	{Title: " Create prod context", Description: "Create a Docker context named 'prod'", Value: "create_prod_context", Checked: false},
+	{Title: " Remove prod context", Description: "Remove the Docker context named 'prod'", Value: "remove_prod_context", Checked: false},
+	{Title: " Login", Description: "Login to Docker registry", Value: "login", Checked: false},
+	{Title: " Ayuda", Description: "Show Docker help", Value: "docker -h", Checked: false},
+	{Title: " Salir", Description: "Exit the menu", Value: "exit", Checked: false},
 }
 
-type model struct {
-	choices  []item
-	cursor   int
-	selected map[int]struct{}
-	quitting bool
-}
-
-func initialModel() model {
-	choices := []item{
-		{title: "📤 Build", description: "Build Docker image using cache", value: "build", checked: false},
-		{title: "📤 Build (sin cache)", description: "Build Docker image without cache", value: "build_no_cache", checked: false},
-		{title: "📤 Save", description: "Save Docker image to a tar file", value: "save", checked: false},
-		{title: "📤 Push", description: "Push Docker image to registry", value: "push", checked: false},
-		{title: "📤 Tag", description: "Tag Docker image with latest tag", value: "tag", checked: false},
-		{title: "📤 Create prod context", description: "Create a Docker context named 'prod'", value: "create_prod_context", checked: false},
-		{title: "📤 Deploy", description: "Deploy application to prod", value: "deploy", checked: false},
-		{title: "📤 Remove prod context", description: "Remove the Docker context named 'prod'", value: "remove_prod_context", checked: false},
-		{title: "📤 Login", description: "Login to Docker registry", value: "login", checked: false},
-		{title: "🔍 Ayuda", description: "Show Docker help", value: "docker -h", checked: false},
-		{title: "❌ Salir", description: "Exit the menu", value: "exit", checked: false},
-	}
-
-	return model{
-		choices:  choices,
-		selected: make(map[int]struct{}),
-	}
-}
-
-func (m model) Init() tea.Cmd {
-	return nil
-}
-
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q":
-			m.quitting = true
-			return m, tea.Quit
-		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
-			}
-		case "down", "j":
-			if m.cursor < len(m.choices)-1 {
-				m.cursor++
-			}
-		case "enter":
-			// Check if "Salir" is selected
-			if m.choices[m.cursor].value == "exit" {
-				m.quitting = true
-				return m, tea.Quit
-			}
-			// Toggle selection
-			if _, ok := m.selected[m.cursor]; ok {
-				delete(m.selected, m.cursor)
-				m.choices[m.cursor].checked = false
-			} else {
-				m.selected[m.cursor] = struct{}{}
-				m.choices[m.cursor].checked = true
-			}
-		case " ":
-			// Toggle selection
-			if _, ok := m.selected[m.cursor]; ok {
-				delete(m.selected, m.cursor)
-				m.choices[m.cursor].checked = false
-			} else {
-				m.selected[m.cursor] = struct{}{}
-				m.choices[m.cursor].checked = true
-			}
-		case "tab":
-			// Run selected commands
-			return m, tea.Quit
-		}
-	}
-
-	return m, nil
-}
-
-func (m model) View() string {
-	// Título y subtítulo
-	s := titleStyle.Render("ORGM DOCKER MENU") + "\n\n"
-	s += subtitleStyle.Render("Select operations to execute (space to select, enter to toggle, tab to run)") + "\n\n"
-
-	for i, choice := range m.choices {
-		// Cursor
-		cursor := " "
-		if m.cursor == i {
-			cursor = cursorStyle.Render(">")
-		} else {
-			cursor = " "
-		}
-
-		// Checkbox
-		checked := " "
-		if choice.checked {
-			checked = checkedStyle.Render("✓")
-		} else {
-			checked = uncheckedStyle.Render(" ")
-		}
-
-		// Item title
-		itemText := choice.title
-		if m.cursor == i {
-			itemText = selectedItemStyle.Render(itemText)
-		} else {
-			itemText = itemStyle.Render(itemText)
-		}
-
-		// Description
-		desc := descriptionStyle.Render(choice.description)
-
-		// Combine all parts
-		s += fmt.Sprintf("%s [%s] %s - %s\n", cursor, checked, itemText, desc)
-	}
-
-	s += "\n" + helpStyle.Render("Press q to quit, space to select/deselect, and tab to run selected commands.") + "\n"
-
-	return s
-}
-
-func runSelectedCommands(selected []item) {
+func runSelectedCommands(selected []inputs.ItemMS) {
 	for _, choice := range selected {
-		fmt.Printf("\n%s\n", commandStyle.Render("► Executing: "+choice.title))
+		fmt.Printf("\n%s\n", inputs.CommandStyle.Render("► Executing: "+choice.Title))
 
 		var err error
 
-		switch choice.value {
+		switch choice.Value {
 		case "login":
-			err = loginCmd().RunE(nil, nil)
+			err = DloginCmd().RunE(nil, nil)
 		case "build_no_cache":
-			err = buildNoCacheCmd().RunE(nil, nil)
+			err = DbuildNoCacheCmd().RunE(nil, nil)
 		case "build":
-			err = buildCmd().RunE(nil, nil)
+			err = DbuildCmd().RunE(nil, nil)
 		case "tag":
-			err = tagCmd().RunE(nil, nil)
+			err = DtagCmd().RunE(nil, nil)
 		case "save":
-			err = saveCmd().RunE(nil, nil)
+			err = DsaveCmd().RunE(nil, nil)
 		case "push":
-			err = pushCmd().RunE(nil, nil)
+			err = DpushCmd().RunE(nil, nil)
 		case "deploy":
-			err = deployCmd().RunE(nil, nil)
+			err = DdeployCmd().RunE(nil, nil)
 		case "create_prod_context":
-			err = createProdContextCmd().RunE(nil, nil)
+			err = DcreateProdContextCmd().RunE(nil, nil)
 		case "remove_prod_context":
-			err = removeProdContextCmd().RunE(nil, nil)
+			err = DremoveProdContextCmd().RunE(nil, nil)
 		case "docker -h":
 			dockerCmd([]string{"orgm", "docker", "-h"}, "")
 		case "exit":
@@ -489,14 +355,14 @@ func runSelectedCommands(selected []item) {
 		}
 
 		if err != nil {
-			fmt.Printf("%s\n", errorStyle.Render("✘ Error: "+err.Error()))
+			fmt.Printf("%s\n", inputs.ErrorStyle.Render("✘ Error: "+err.Error()))
 		} else {
-			fmt.Printf("%s\n", successStyle.Render("✓ Completed successfully"))
+			fmt.Printf("%s\n", inputs.SuccessStyle.Render("✓ Completed successfully"))
 		}
 	}
 }
 
-func menuCmd() *cobra.Command {
+func DmenuCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "menu",
 		Short: "Interactive Docker menu",
@@ -509,41 +375,41 @@ func menuCmd() *cobra.Command {
 			fmt.Println(bannerStyle.Render(banner))
 
 			// Iniciar la aplicación BubbleTea
-			p := tea.NewProgram(initialModel())
+			p := tea.NewProgram(inputs.InitialModelMS(choices))
 			m, err := p.Run()
 			if err != nil {
-				fmt.Printf("%s\n", errorStyle.Render("Error running menu: "+err.Error()))
+				fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error running menu: "+err.Error()))
 				return
 			}
 
 			// Get the final model
-			model, ok := m.(model)
+			model, ok := m.(inputs.ModelMS)
 			if !ok {
-				fmt.Printf("%s\n", errorStyle.Render("Could not get the model"))
+				fmt.Printf("%s\n", inputs.ErrorStyle.Render("Could not get the model"))
 				return
 			}
 
-			if model.quitting {
+			if model.Quitting {
 				return
 			}
 
 			// Get selected items
-			var selected []item
-			for i, choice := range model.choices {
-				if _, ok := model.selected[i]; ok {
+			var selected []inputs.ItemMS
+			for i, choice := range model.Choices {
+				if _, ok := model.Selected[i]; ok {
 					selected = append(selected, choice)
 				}
 			}
 
 			if len(selected) == 0 {
-				fmt.Printf("%s\n", warningStyle.Render("No operations selected."))
+				fmt.Printf("%s\n", inputs.WarningStyle.Render("No operations selected."))
 				return
 			}
 
 			// Mostrar resumen de operaciones seleccionadas
-			fmt.Printf("\n%s\n", titleStyle.Render("Selected Operations"))
+			fmt.Printf("\n%s\n", inputs.TitleStyle.Render("Selected Operations"))
 			for i, choice := range selected {
-				fmt.Printf("%d. %s\n", i+1, commandStyle.Render(choice.title))
+				fmt.Printf("%d. %s\n", i+1, inputs.CommandStyle.Render(choice.Title))
 			}
 			fmt.Println()
 
@@ -560,22 +426,22 @@ func DockerCmd() *cobra.Command {
 		Long:  `Commands for Docker operations like build, tag, push, deploy, etc.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			// Si se ejecuta sin argumentos, mostrar el menú interactivo
-			menuCmd().Run(cmd, args)
+			DmenuCmd().Run(cmd, args)
 		},
 	}
 
 	// Add subcommands
 	dockerCmd.AddCommand(
-		buildCmd(),
-		buildNoCacheCmd(),
-		saveCmd(),
-		pushCmd(),
-		tagCmd(),
-		createProdContextCmd(),
-		removeProdContextCmd(),
-		deployCmd(),
-		loginCmd(),
-		menuCmd(),
+		DbuildCmd(),
+		DbuildNoCacheCmd(),
+		DsaveCmd(),
+		DpushCmd(),
+		DtagCmd(),
+		DcreateProdContextCmd(),
+		DremoveProdContextCmd(),
+		DdeployCmd(),
+		DloginCmd(),
+		DmenuCmd(),
 	)
 
 	return dockerCmd
@@ -583,5 +449,5 @@ func DockerCmd() *cobra.Command {
 
 func init() {
 
-	rootCmd.AddCommand(DockerCmd())
+	RootCmd.AddCommand(DockerCmd())
 }
