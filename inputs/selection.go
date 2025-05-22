@@ -7,12 +7,12 @@ import (
 )
 
 // Bubble tea model for Config menu
-type ItemS struct {
+type SelectionItemS struct {
 	Title string
 }
 
-type ModelS struct {
-	Choices  []ItemS
+type SelectionModelS struct {
+	Choices  []SelectionItemS
 	Cursor   int
 	Selected bool
 	Quitting bool
@@ -20,25 +20,25 @@ type ModelS struct {
 	Subtitle string
 }
 
-func InitialModelS(list []string, title, subtitle string) ModelS {
+func SelectionModel(list []string, title, subtitle string) SelectionModelS {
 
-	choices := []ItemS{}
+	choices := []SelectionItemS{}
 	for _, i := range list {
-		choices = append(choices, ItemS{Title: i})
+		choices = append(choices, SelectionItemS{Title: i})
 	}
 
-	return ModelS{
+	return SelectionModelS{
 		Choices:  choices,
 		Title:    title,
 		Subtitle: subtitle,
 	}
 }
 
-func (m ModelS) Init() tea.Cmd {
+func (m SelectionModelS) Init() tea.Cmd {
 	return nil
 }
 
-func (m ModelS) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m SelectionModelS) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -62,7 +62,7 @@ func (m ModelS) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m ModelS) View() string {
+func (m SelectionModelS) View() string {
 	s := TitleStyle.Render(m.Title) + "\n\n"
 	s += SubtitleStyle.Render(m.Subtitle) + "\n\n"
 

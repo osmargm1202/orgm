@@ -4,89 +4,95 @@ Copyright © 2025 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/osmargm1202/orgm/inputs"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"github.com/studio-b12/gowebdav"
 )
-
-func InitializePostgrest() (string, map[string]string) {
-
-	// Get PostgREST URL from config
-	postgrestURL := viper.GetString("url.postgrest")
-	if postgrestURL == "" {
-		log.Fatal("Error: url.postgrest is not defined in config file")
-		return "", nil
-	}
-
-	// Initialize headers
-	headers := make(map[string]string)
-	headers["Content-Type"] = "application/json"
-	headers["Prefer"] = "return=representation"
-	headers["accept"] = "application/json"
-	headers["CF-Access-Client-Id"] = viper.GetString("cloudflare.CF_ACCESS_CLIENT_ID")
-	headers["CF-Access-Client-Secret"] = viper.GetString("cloudflare.CF_ACCESS_CLIENT_SECRET")
-
-	return postgrestURL, headers
-}
-
-func InitializeApi() (string, map[string]string) {
-
-	// Get API URL from config
-	apiURL := viper.GetString("url.apis")
-	if apiURL == "" {
-		log.Fatal("Error: url.apis is not defined in config file")
-		return "", nil
-	}
-
-	// Initialize headers
-	headers := make(map[string]string)
-	headers["Content-Type"] = "application/json"
-	headers["accept"] = "application/json"
-	headers["CF-Access-Client-Id"] = viper.GetString("cloudflare.CF_ACCESS_CLIENT_ID")
-	headers["CF-Access-Client-Secret"] = viper.GetString("cloudflare.CF_ACCESS_CLIENT_SECRET")
-
-	return apiURL, headers
-}
-
 
 // configCmd represents the config command
 var configCmd = &cobra.Command{
 	Use:   "config",
-	Short: "Edit Config commands with nano or editor choice",
-	Long:  `Edit Config commands with nano or editor choice for example: orgm config nano or orgm config nvim`,
+	Short: "Edit Config commands with nano or editor choice, or set config file path.",
+	Long:  `Edit Config commands with nano or editor choice (e.g., orgm config nano). If no editor is provided, it prompts to set the configuration file path via a text input.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) == 0 {
-			args = []string{"nano"}
+			filePath, err := runInputAndGetPath()
+			if err != nil {
+				log.Fatalf("Error getting input: %v", err)
+			}
+
+			if filePath == "" {
+				log.Println("No file path entered or input was cancelled.")
+				return
+			}
+
+			err = savePathToViperConfigLocation(filePath)
+			if err != nil {
+				log.Fatalf("Error saving file path: %v", err)
+			}
+		} else {
+			EditConfig(args[0])
 		}
-		EditConfig(args[0])
 	},
 }
 
-func InitializeNextcloud() *gowebdav.Client {
-
-	// Get Nextcloud URL from config
-	nextcloudURL := viper.GetString("url.nextcloud")
-	if nextcloudURL == "" {
-		log.Fatal("Error: url.nextcloud is not defined in config file")
-		return nil
+func runInputAndGetPath() (string, error) {
+	model := inputs.TextInput("Enter the path to your configuration file:", "/path/to/your/file.toml")
+	p := tea.NewProgram(model)
+	finalModel, err := p.Run()
+	if err != nil {
+		return "", fmt.Errorf("error running bubbletea program: %w", err)
 	}
-	username := viper.GetString("nextcloud.username")
-	password := viper.GetString("nextcloud.password")
 
-	nextcloudURL = nextcloudURL + "/remote.php/dav/files/" + username
+	if m, ok := finalModel.(inputs.TextInputModel); ok {
+		filePath := m.TextInput.Value()
+		// Remove surrounding quotes if present
+		if len(filePath) >= 2 {
+			if (filePath[0] == '\'' && filePath[len(filePath)-1] == '\'') ||
+				(filePath[0] == '"' && filePath[len(filePath)-1] == '"') {
+				filePath = filePath[1 : len(filePath)-1]
+			}
+		}
+		return filePath, nil
+	}
+	return "", fmt.Errorf("could not cast final model to TextInputModel")
+}
 
-	client := gowebdav.NewClient(nextcloudURL, username, password)
+func savePathToViperConfigLocation(filePath string) error {
+	configDir := viper.GetString("config_path")
+	if configDir == "" {
+		return fmt.Errorf("viper key 'config_path' is not set. Please set it first via your main application configuration")
+	}
 
-	// if err := client.Connect(); err != nil {
-	// 	log.Fatal("Error connecting to Nextcloud:", err)
-	// 	return nil
-	// }
+	// Ensure the source file exists and is readable
+	sourceFileContent, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to read source file %s: %w", filePath, err)
+	}
 
-	return client
+	// Ensure the target directory exists
+	err = os.MkdirAll(configDir, 0755) // 0755 gives rwx for owner, rx for group/others
+	if err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", configDir, err)
+	}
+
+	targetFile := filepath.Join(configDir, "config.toml")
+
+	// Write the content of sourceFileContent to targetFile
+	// This will create the file if it doesn't exist, or truncate and overwrite if it does.
+	err = os.WriteFile(targetFile, sourceFileContent, 0644) // 0644 gives rw for owner, r for group/others
+	if err != nil {
+		return fmt.Errorf("failed to write to %s: %w", targetFile, err)
+	}
+	log.Printf("Content of '%s' saved to %s", filePath, targetFile)
+	return nil
 }
 
 func EditConfig(editor string) {

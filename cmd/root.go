@@ -6,9 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/osmargm1202/orgm/inputs"
 	"github.com/osmargm1202/orgm/cmd/adm"
 	"github.com/osmargm1202/orgm/cmd/misc"
+	"github.com/osmargm1202/orgm/inputs"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -55,28 +55,39 @@ func init() {
 	RootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 
 }
-
 func initConfig() {
-
 	viper.SetConfigName("config")
 	viper.SetConfigType("toml")
-	viper.ReadInConfig()
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		log.Fatalf("Error al obtener el directorio home: %v", err)
-		return
+	// First check if config.toml exists in current directory
+	if _, err := os.Stat("config.toml"); err == nil {
+		viper.AddConfigPath(".") // Path: current directory
+	} else {
+		// If not found in current directory, use home directory config
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			log.Fatalf("Error al obtener el directorio home: %v", err)
+		}
+
+		configPath := filepath.Join(homeDir, ".config", "orgm")
+		viper.AddConfigPath(configPath) // Path: ~/.config/orgm
+		viper.AddConfigPath(".")        // Path: current directory as fallback
 	}
 
-	configPath := filepath.Join(homeDir, ".config", "orgm")
-	viper.SetDefault("config_path", configPath)
+	viper.AutomaticEnv() // Read in environment variables that match
 
-	// Configuración de Viper
-	viper.AddConfigPath(configPath) // agregar la ruta al directorio de configuración
-
-	viper.AutomaticEnv()
-
-	if err := viper.ReadInConfig(); err == nil {
+	// Attempt to read the configuration file
+	if err := viper.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+			// Config file not found; Viper will rely on env vars or defaults if any.
+			// This might be acceptable for some commands.
+			fmt.Fprintln(os.Stderr, "Warning: Config file not found. Proceeding without it or using environment variables/defaults.")
+		} else {
+			// Other error reading config file
+			fmt.Fprintf(os.Stderr, "Warning: Error reading config file: %v\n", err)
+		}
+	} else {
+		// Config file found and successfully parsed
 		fmt.Println("Using config file:", viper.ConfigFileUsed())
 	}
 }

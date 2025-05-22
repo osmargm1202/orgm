@@ -187,14 +187,14 @@ func GetConfigs() []string {
 
 func SelectConfig(title, subtitle string) string {
 	lista := GetConfigs()
-	p := tea.NewProgram(inputs.InitialModelS(lista, title, subtitle))
+	p := tea.NewProgram(inputs.SelectionModel(lista, title, subtitle))
 	m, err := p.Run()
 	if err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error running menu: "+err.Error()))
 		return ""
 	}
 
-	if model, ok := m.(inputs.ModelS); ok {
+	if model, ok := m.(inputs.SelectionModelS); ok {
 		if model.Quitting {
 			return ""
 		}
