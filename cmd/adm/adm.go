@@ -1,6 +1,5 @@
 package adm
 
-
 import (
 	// "fmt"
 	"github.com/spf13/cobra"
@@ -18,4 +17,5 @@ var AdmCmd = &cobra.Command{
 }
 
 func init() {
+
 }

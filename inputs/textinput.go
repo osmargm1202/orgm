@@ -17,7 +17,6 @@ import (
 // 	}
 // }
 
-
 type TextInputModel struct {
 	TextInput textinput.Model
 	Err       error
@@ -71,4 +70,27 @@ func (m TextInputModel) View() string {
 	}
 	sb.WriteString("\n")
 	return sb.String()
+}
+
+// GetInput presents a text input prompt and returns the user's input
+func GetInput(question string) string {
+	model := TextInput(question, "")
+	p := tea.NewProgram(model)
+	result, _ := p.Run()
+	finalModel := result.(TextInputModel)
+	return strings.TrimSpace(finalModel.TextInput.Value())
+}
+
+// GetInputWithDefault presents a text input prompt with a default value and returns the user's input
+func GetInputWithDefault(question, defaultValue string) string {
+	model := TextInput(question, defaultValue)
+	model.TextInput.SetValue(defaultValue)
+	p := tea.NewProgram(model)
+	result, _ := p.Run()
+	finalModel := result.(TextInputModel)
+	value := strings.TrimSpace(finalModel.TextInput.Value())
+	if value == "" {
+		return defaultValue
+	}
+	return value
 }

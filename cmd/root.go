@@ -70,6 +70,7 @@ func initConfig() {
 		}
 
 		configPath := filepath.Join(homeDir, ".config", "orgm")
+		viper.Set("config_path", configPath)
 		viper.AddConfigPath(configPath) // Path: ~/.config/orgm
 		viper.AddConfigPath(".")        // Path: current directory as fallback
 	}
