@@ -5,3 +5,4 @@ bd
 
 
 *.toml
+cmd/adm/pago.py

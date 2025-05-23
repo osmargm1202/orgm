@@ -185,7 +185,7 @@ func crearFactura(cotizacion Cotizacion, totalFactura float64) (*Factura, error)
 		IDProyecto:        cotizacion.IDProyecto,
 		Moneda:            cotizacion.Moneda,
 		TipoFactura:       cliente.TipoFactura,
-		Fecha:             time.Now().Format("02/01/2006"),
+		Fecha:             time.Now().Format("02/01/2006"), // Sí, está en formato día/mes/año
 		TasaMoneda:        cotizacion.TasaMoneda,
 		Original:          "VENDEDOR",
 		Estado:            "GENERADA",
@@ -290,27 +290,15 @@ func obtenerComprobanteDisponible(tipoFactura string) (string, string, error) {
 
 // Función auxiliar para parsear fechas en múltiples formatos
 func parsearFecha(fechaStr string) (time.Time, error) {
-	// Formatos de fecha soportados
-	formatos := []string{
-		"1/2/2006",   // m/d/yyyy (formato americano)
-		"01/02/2006", // mm/dd/yyyy
-		"2/1/2006",   // d/m/yyyy
-		"02/01/2006", // dd/mm/yyyy
-		"1-2-2006",   // m-d-yyyy
-		"01-02-2006", // mm-dd-yyyy
-		"2-1-2006",   // d-m-yyyy
-		"02-01-2006", // dd-mm-yyyy
-		"2006-01-02", // yyyy-mm-dd (ISO)
-		"2006/01/02", // yyyy/mm/dd
+	// Formato de fecha esperado: mes/dia/año
+	formato := "01/02/2006" // mm/dd/yyyy
+
+	fecha, err := time.Parse(formato, fechaStr)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("la fecha '%s' no está en el formato correcto (mes/dia/año)", fechaStr)
 	}
 
-	for _, formato := range formatos {
-		if fecha, err := time.Parse(formato, fechaStr); err == nil {
-			return fecha, nil
-		}
-	}
-
-	return time.Time{}, fmt.Errorf("no se pudo parsear la fecha '%s' con ningún formato conocido", fechaStr)
+	return fecha, nil
 }
 
 func esComprobanteUsado(numero string) bool {
