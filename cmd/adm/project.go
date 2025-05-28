@@ -41,7 +41,7 @@ func BuscarProyecto() Proyecto {
 		{ID: "new", Name: "Crear nuevo proyecto", Desc: "Crear un nuevo proyecto en el sistema"},
 	}
 
-	selectedMethod := inputs.SelectList("Seleccione método de búsqueda", items)
+	selectedMethod := inputs.SelectList("Seleccione método de búsqueda de proyectos", items)
 
 	if selectedMethod.ID == "id" {
 		// Buscar por ID
@@ -116,7 +116,7 @@ func BuscarProyecto() Proyecto {
 			items[i] = inputs.Item{
 				ID:   strconv.Itoa(p.ID),
 				Name: p.Nombre,
-				Desc: p.Ubicacion,
+				Desc: fmt.Sprintf("ID: %d | %s", p.ID, p.Ubicacion),
 			}
 		}
 

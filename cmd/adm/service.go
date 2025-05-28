@@ -1,21 +1,18 @@
-
 package adm
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
-	"encoding/json"
+
 	"github.com/osmargm1202/orgm/inputs"
 )
 
 type Servicio struct {
-	ID        int    `json:"id"`
-	Nombre    string `json:"nombre"`
+	ID          int    `json:"id"`
+	Nombre      string `json:"nombre"`
 	Descripcion string `json:"descripcion"`
 }
-
-
-
 
 func BuscarServicio() Servicio {
 	var servicio Servicio
@@ -44,7 +41,7 @@ func BuscarServicio() Servicio {
 		items[i] = inputs.Item{
 			ID:   strconv.Itoa(s.ID),
 			Name: s.Nombre,
-			Desc: s.Descripcion,
+			Desc: fmt.Sprintf("ID: %d | %s", s.ID, s.Descripcion),
 		}
 	}
 

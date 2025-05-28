@@ -72,7 +72,7 @@ func Prompt(prompt []string, config string) string {
 
 	// If no prompt provided, ask user for input
 	if promptText == "" {
-		p := tea.NewProgram(inputs.TextInput("Enter your AI request: ", "how to install orgm?"))
+		p := tea.NewProgram(inputs.TextInput("Enter your AI request: ", "how to install orgm?"), tea.WithAltScreen())
 		m, err := p.Run()
 		if err != nil {
 			fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error running menu: "+err.Error()))
@@ -187,7 +187,7 @@ func GetConfigs() []string {
 
 func SelectConfig(title, subtitle string) string {
 	lista := GetConfigs()
-	p := tea.NewProgram(inputs.SelectionModel(lista, title, subtitle))
+	p := tea.NewProgram(inputs.SelectionModel(lista, title, subtitle), tea.WithAltScreen())
 	m, err := p.Run()
 	if err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error running menu: "+err.Error()))

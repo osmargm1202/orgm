@@ -2,13 +2,14 @@ package cmd
 
 import (
 	"log"
-	"github.com/studio-b12/gowebdav"
+
 	"github.com/spf13/viper"
+	"github.com/studio-b12/gowebdav"
 )
 
 func InitializePostgrest() (string, map[string]string) {
 
-	// Get PostgREST URL from config
+	// Get PostgREST URL from configs
 	postgrestURL := viper.GetString("url.postgrest")
 	if postgrestURL == "" {
 		log.Fatal("Error: url.postgrest is not defined in config file")
@@ -48,9 +49,9 @@ func InitializeApi() (string, map[string]string) {
 func InitializeNextcloud() *gowebdav.Client {
 
 	// Get Nextcloud URL from config
-	nextcloudURL := viper.GetString("url.nextcloud")
+	nextcloudURL := viper.GetString("nextcloud.url")
 	if nextcloudURL == "" {
-		log.Fatal("Error: url.nextcloud is not defined in config file")
+		log.Fatal("Error: nextcloud.url is not defined in config file")
 		return nil
 	}
 	username := viper.GetString("nextcloud.username")

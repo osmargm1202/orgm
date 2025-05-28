@@ -374,8 +374,8 @@ func DmenuCmd() *cobra.Command {
 			bannerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#7D56F4")).Bold(true)
 			fmt.Println(bannerStyle.Render(banner))
 
-			// Iniciar la aplicación BubbleTea
-			p := tea.NewProgram(inputs.InitialModelMS(choices))
+			// Iniciar la aplicación BubbleTea con alt screen
+			p := tea.NewProgram(inputs.InitialModelMS(choices), tea.WithAltScreen())
 			m, err := p.Run()
 			if err != nil {
 				fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error running menu: "+err.Error()))

@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"fmt"
-	"net/http"
+	"net"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/osmargm1202/orgm/inputs"
@@ -12,89 +14,116 @@ import (
 var checkCmd = &cobra.Command{
 	Use:   "check",
 	Short: "Check the application",
-	Long:  `Check the urls of the application and configuration files`,
+	Long:  `Check the connectivity to the application servers and endpoints using TCP ping`,
 	Run: func(cmd *cobra.Command, args []string) {
 		VerifyUrls()
+		verifyCloudUrl()
+		verifyPostgrestUrl()
+		verifyImgUrl()
 	},
 }
 
-type url struct {
-	busqueda string
-	headers  map[string]string
-}
-
-func convertUrls(busqueda string, headers map[string]string) url {
-	return url{
-		busqueda: busqueda,
-		headers:  headers,
-	}
-}
-
-func defineList() []url {
-		
-	var listUrls = []url{
-
-		func() url {
-			url, headers := InitializeApi()
-			return convertUrls(url, headers)
-		}(),
-		func() url {
-			url, headers := InitializePostgrest()
-			return convertUrls(url, headers)
-		}(),
-		func() url {
-			headers := make(map[string]string)
-			headers["Content-Type"] = "text/html"
-			headers["accept"] = "text/html"
-			return convertUrls("https://cloud.orgmapp.com", headers)
-		}(),
+func extractHostAndPort(urlStr string) (string, string, error) {
+	if !strings.HasPrefix(urlStr, "http://") && !strings.HasPrefix(urlStr, "https://") {
+		urlStr = "https://" + urlStr
 	}
 
-	return listUrls
-}
-
-func checkUrl(pagina url) string {
-
-	req, err := http.NewRequest("GET", pagina.busqueda, nil)
+	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
-		fmt.Println("Error creating request:", err)
-		return ""
+		return "", "", err
 	}
 
-	for key, value := range pagina.headers {
-		req.Header.Add(key, value)
+	hostname := parsedURL.Hostname()
+	port := parsedURL.Port()
+
+	// Set default ports if not specified
+	if port == "" {
+		if parsedURL.Scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
 	}
 
-	// Make request with timeout
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
-	resp, err := client.Do(req)
+	return hostname, port, nil
+}
+
+func pingEndpoint(fullUrl string) string {
+	hostname, port, err := extractHostAndPort(fullUrl)
 	if err != nil {
-		fmt.Println("Error making request:", err)
-		return ""
+		return "Invalid URL"
 	}
-	defer resp.Body.Close()
 
-	// Check status code
-	if resp.StatusCode != http.StatusOK {
-		fmt.Println("API returned status code:", resp.StatusCode)
-		return ""
+	address := net.JoinHostPort(hostname, port)
+	conn, err := net.DialTimeout("tcp", address, 5*time.Second)
+	if err != nil {
+		return "Connection failed"
 	}
+	defer conn.Close()
 
 	return "OK"
 }
 
+var ApiEndPoints = []string{
+	"/cot",
+	"/fac",
+	"/firmapdf",
+}
+
 func VerifyUrls() {
-	listUrls := defineList()
-	for _, url := range listUrls {
-		fmt.Println(inputs.InfoStyle.Render(url.busqueda))
-		res := checkUrl(url)
+	apiUrl, _ := InitializeApi()
+
+	for _, endpoint := range ApiEndPoints {
+		fullEndpoint := apiUrl + endpoint
+		fmt.Println(inputs.InfoStyle.Render(fmt.Sprintf("Ping %s", fullEndpoint)))
+		start := time.Now()
+		res := pingEndpoint(fullEndpoint)
+		elapsed := time.Since(start)
 		if res == "OK" {
-			fmt.Println(inputs.SuccessStyle.Render(res))
+			fmt.Printf("%s (%dms)\n", inputs.SuccessStyle.Render(res), elapsed.Milliseconds())
 		} else {
-			fmt.Println(inputs.ErrorStyle.Render(res))
+			fmt.Printf("%s (%dms)\n", inputs.ErrorStyle.Render(res), elapsed.Milliseconds())
 		}
+	}
+}
+
+func verifyCloudUrl() {
+	url := "https://cloud.orgmapp.com"
+	fmt.Println(inputs.InfoStyle.Render(fmt.Sprintf("Ping %s", url)))
+	start := time.Now()
+	res := pingEndpoint(url)
+	elapsed := time.Since(start)
+	if res == "OK" {
+		fmt.Printf("%s (%dms)\n", inputs.SuccessStyle.Render(res), elapsed.Milliseconds())
+	} else {
+		fmt.Printf("%s (%dms)\n", inputs.ErrorStyle.Render(res), elapsed.Milliseconds())
+	}
+}
+
+func verifyPostgrestUrl() {
+	postgrestUrl, _ := InitializePostgrest()
+
+	fmt.Println(inputs.InfoStyle.Render(fmt.Sprintf("Ping %s", postgrestUrl)))
+	start := time.Now()
+	res := pingEndpoint(postgrestUrl)
+	elapsed := time.Since(start)
+	if res == "OK" {
+		fmt.Printf("%s (%dms)\n", inputs.SuccessStyle.Render(res), elapsed.Milliseconds())
+	} else {
+		fmt.Printf("%s (%dms)\n", inputs.ErrorStyle.Render(res), elapsed.Milliseconds())
+	}
+}
+
+func verifyImgUrl() {
+	url := "https://img.orgmapp.com/list/images/test"
+	fmt.Println(inputs.InfoStyle.Render(fmt.Sprintf("Ping %s", url)))
+	start := time.Now()
+	res := pingEndpoint(url)
+	elapsed := time.Since(start)
+	if res == "OK" {
+		fmt.Printf("%s (%dms)\n", inputs.SuccessStyle.Render(res), elapsed.Milliseconds())
+	} else {
+		fmt.Printf("%s (%dms)\n", inputs.ErrorStyle.Render(res), elapsed.Milliseconds())
 	}
 }
 

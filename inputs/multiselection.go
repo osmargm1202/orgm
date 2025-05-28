@@ -6,7 +6,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-
 // Bubble tea model for Docker menu
 type ItemMS struct {
 	Title       string
@@ -87,7 +86,24 @@ func (m ModelMS) View() string {
 	s := TitleStyle.Render("ORGM DOCKER MENU") + "\n\n"
 	s += SubtitleStyle.Render("Select operations to execute (space to select, enter to toggle, tab to run)") + "\n\n"
 
-	for i, choice := range m.Choices {
+	// Mostrar solo los elementos que están dentro del rango visible
+	// Para asegurar que se vean al menos 5 elementos
+	visibleStart := 0
+	visibleEnd := len(m.Choices)
+
+	// Si hay muchos elementos, centrar la vista alrededor del cursor
+	if len(m.Choices) > 10 {
+		if m.Cursor >= 5 {
+			visibleStart = m.Cursor - 5
+		}
+		if visibleStart+10 < len(m.Choices) {
+			visibleEnd = visibleStart + 10
+		}
+	}
+
+	for i := visibleStart; i < visibleEnd && i < len(m.Choices); i++ {
+		choice := m.Choices[i]
+
 		// Cursor
 		cursor := " "
 		if m.Cursor == i {
@@ -117,6 +133,18 @@ func (m ModelMS) View() string {
 
 		// Combine all parts
 		s += fmt.Sprintf("%s [%s] %s - %s\n", cursor, checked, itemText, desc)
+	}
+
+	// Mostrar indicador si hay más elementos arriba o abajo
+	if visibleStart > 0 {
+		s = TitleStyle.Render("ORGM DOCKER MENU") + "\n\n" +
+			SubtitleStyle.Render("Select operations to execute (space to select, enter to toggle, tab to run)") + "\n" +
+			HelpStyle.Render("... more items above ...") + "\n\n" +
+			s[len(TitleStyle.Render("ORGM DOCKER MENU")+"\n\n"+SubtitleStyle.Render("Select operations to execute (space to select, enter to toggle, tab to run)")+"\n\n"):]
+	}
+
+	if visibleEnd < len(m.Choices) {
+		s += HelpStyle.Render("... more items below ...") + "\n"
 	}
 
 	s += "\n" + HelpStyle.Render("Press q to quit, space to select/deselect, and tab to run selected commands.") + "\n"

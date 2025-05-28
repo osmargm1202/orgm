@@ -54,7 +54,7 @@ func BuscarCliente() Cliente {
 		{ID: "new", Name: "Crear nuevo cliente", Desc: "Crear un nuevo cliente en el sistema"},
 	}
 
-	selectedMethod := inputs.SelectList("Seleccione método de búsqueda", items)
+	selectedMethod := inputs.SelectList("Seleccione método de búsqueda de clientes", items)
 
 	if selectedMethod.ID == "id" {
 		// Buscar por ID
@@ -126,8 +126,6 @@ func CrearNuevoCliente() Cliente {
 		fmt.Println("El nombre del cliente es obligatorio")
 		return Cliente{}
 	}
-
-
 
 	cliente.NombreComercial = inputs.GetInputWithDefault("Nombre comercial", "")
 	cliente.Numero = inputs.GetInputWithDefault("Número/RNC", "")

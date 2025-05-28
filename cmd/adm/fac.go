@@ -82,6 +82,27 @@ func init() {
 	NewCmd.AddCommand(facCmd)
 }
 
+func obtenerProyecto(idProyecto int) (*Proyecto, error) {
+	postgrestURL, headers := InitializePostgrest()
+	url := fmt.Sprintf("%s/proyecto?id=eq.%d", postgrestURL, idProyecto)
+
+	resp, err := MakeRequest("GET", url, headers, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error al buscar proyecto: %w", err)
+	}
+
+	var proyectos []Proyecto
+	if err := json.Unmarshal(resp, &proyectos); err != nil {
+		return nil, fmt.Errorf("error al procesar proyecto: %w", err)
+	}
+
+	if len(proyectos) == 0 {
+		return nil, fmt.Errorf("no se encontró proyecto con ID %d", idProyecto)
+	}
+
+	return &proyectos[0], nil
+}
+
 func crearFacturaDesdeCorización() {
 	fmt.Println("\n=== CREAR FACTURA DESDE COTIZACIÓN ===")
 
@@ -92,9 +113,25 @@ func crearFacturaDesdeCorización() {
 		return
 	}
 
+	// Obtener información del cliente
+	cliente, err := obtenerCliente(cotizacion.IDCliente)
+	if err != nil {
+		fmt.Printf("Error al obtener cliente: %v\n", err)
+		return
+	}
+
+	// Obtener información del proyecto
+	proyecto, err := obtenerProyecto(cotizacion.IDProyecto)
+	if err != nil {
+		fmt.Printf("Error al obtener proyecto: %v\n", err)
+		return
+	}
+
 	// Mostrar información de la cotización seleccionada
 	fmt.Printf("\n--- Cotización Seleccionada ---\n")
 	fmt.Printf("ID: %d\n", cotizacion.ID)
+	fmt.Printf("Cliente: %s\n", cliente.Nombre)
+	fmt.Printf("Proyecto: %s\n", proyecto.Nombre)
 	fmt.Printf("Fecha: %s\n", cotizacion.Fecha)
 	fmt.Printf("Total: %.2f %s\n", cotizacion.Total, cotizacion.Moneda)
 	fmt.Printf("Estado: %s\n", cotizacion.Estado)
@@ -185,7 +222,7 @@ func crearFactura(cotizacion Cotizacion, totalFactura float64) (*Factura, error)
 		IDProyecto:        cotizacion.IDProyecto,
 		Moneda:            cotizacion.Moneda,
 		TipoFactura:       cliente.TipoFactura,
-		Fecha:             time.Now().Format("02/01/2006"), // Sí, está en formato día/mes/año
+		Fecha:             time.Now().Format("01/02/2006"), // Sí, está en formato día/mes/año
 		TasaMoneda:        cotizacion.TasaMoneda,
 		Original:          "VENDEDOR",
 		Estado:            "GENERADA",
@@ -260,6 +297,23 @@ func obtenerComprobanteDisponible(tipoFactura string) (string, string, error) {
 		return "", "", fmt.Errorf("error al procesar comprobantes: %w", err)
 	}
 
+	// Para NCFC, no verificar fechas, solo obtener el primer comprobante no usado
+	if tipoFactura == "NCFC" {
+		for _, comp := range comprobantes {
+			numero, ok := comp["numero"].(string)
+			if !ok {
+				continue
+			}
+
+			// Verificar si el comprobante no ha sido usado en otra factura
+			if !esComprobanteUsado(numero) {
+				return numero, "", nil // No hay fecha para NCFC
+			}
+		}
+		return "", "", fmt.Errorf("no se encontraron comprobantes NCFC disponibles")
+	}
+
+	// Para otros tipos de comprobantes, verificar fechas
 	fechaActual := time.Now()
 
 	for _, comp := range comprobantes {

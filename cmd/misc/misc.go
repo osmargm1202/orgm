@@ -1,7 +1,6 @@
 package misc
 
 import (
-	"fmt"
 
 	"github.com/spf13/cobra"
 )
@@ -12,9 +11,6 @@ var MiscCmd = &cobra.Command{
 	Short: "Miscellaneous commands",
 	Long:  `Miscellaneous commands`,
 
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("misc called")
-	},
 }
 
 func init() {

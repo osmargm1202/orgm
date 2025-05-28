@@ -107,7 +107,6 @@ var cotCmd = &cobra.Command{
 	},
 }
 
-
 func init() {
 	NewCmd.AddCommand(cotCmd)
 }
@@ -541,12 +540,17 @@ func (m clienteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.clientes = msg.clientes
 		items := make([]list.Item, len(m.clientes))
 		for i, c := range m.clientes {
-			description := c.Representante + " | " + c.TipoFactura
+			description := fmt.Sprintf("ID: %d | %s | %s", c.ID, c.Representante, c.TipoFactura)
 			if c.NombreComercial != "" {
-				description = c.NombreComercial + " | " + description
+				description = fmt.Sprintf("ID: %d | %s | %s | %s", c.ID, c.NombreComercial, c.Representante, c.TipoFactura)
 			}
 			if c.Numero != "" {
-				description = "Núm: " + c.Numero + " | " + description
+				// Mantener el ID al principio y reorganizar el resto
+				parts := fmt.Sprintf("Núm: %s | %s | %s", c.Numero, c.Representante, c.TipoFactura)
+				if c.NombreComercial != "" {
+					parts = fmt.Sprintf("Núm: %s | %s | %s | %s", c.Numero, c.NombreComercial, c.Representante, c.TipoFactura)
+				}
+				description = fmt.Sprintf("ID: %d | %s", c.ID, parts)
 			}
 
 			items[i] = customItem{

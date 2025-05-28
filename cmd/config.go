@@ -33,7 +33,7 @@ var configCmd = &cobra.Command{
 				return
 			}
 
-			err = savePathToViperConfigLocation(filePath)
+			err = savePath(filePath)
 			if err != nil {
 				log.Fatalf("Error saving file path: %v", err)
 			}
@@ -45,7 +45,7 @@ var configCmd = &cobra.Command{
 
 func runInputAndGetPath() (string, error) {
 	model := inputs.TextInput("Enter the path to your configuration file:", "/path/to/your/file.toml")
-	p := tea.NewProgram(model)
+	p := tea.NewProgram(model, tea.WithAltScreen())
 	finalModel, err := p.Run()
 	if err != nil {
 		return "", fmt.Errorf("error running bubbletea program: %w", err)
@@ -65,11 +65,15 @@ func runInputAndGetPath() (string, error) {
 	return "", fmt.Errorf("could not cast final model to TextInputModel")
 }
 
-func savePathToViperConfigLocation(filePath string) error {
-	configDir := viper.GetString("config_path")
-	if configDir == "" {
-		return fmt.Errorf("viper key 'config_path' is not set. Please set it first via your main application configuration")
+func savePath(filePath string) error {
+	// Get user's home directory
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get user home directory: %w", err)
 	}
+
+	// Use default config path: ~/.config/orgm/config.toml
+	configDir := filepath.Join(homeDir, ".config", "orgm")
 
 	// Ensure the source file exists and is readable
 	sourceFileContent, err := os.ReadFile(filePath)

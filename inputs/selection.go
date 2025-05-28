@@ -120,8 +120,8 @@ func SelectList(title string, items []Item) Item {
 		itemMap[item.ID] = item
 	}
 
-	// Configurar un tamaño adecuado para la lista
-	width, height := 80, 15 // Tamaño explícito para mejor visibilidad
+	// Configurar un tamaño adecuado para la lista con mínimo 5 elementos visibles
+	width, height := 80, 20 // Aumentado el tamaño para mejor visibilidad (mínimo 5 elementos)
 
 	delegate := list.NewDefaultDelegate()
 	delegate.ShowDescription = true // Mostrar descripción para más información
@@ -137,7 +137,7 @@ func SelectList(title string, items []Item) Item {
 		list:    l,
 		itemMap: itemMap,
 	}
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, tea.WithAltScreen())
 
 	result, _ := p.Run()
 	finalModel := result.(listModel)

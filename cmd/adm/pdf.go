@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 
 	"github.com/spf13/cobra"
@@ -23,61 +24,68 @@ var PdfCmd = &cobra.Command{
 }
 
 var PrintFacturaCmd = &cobra.Command{
-	Use:   "invoice [id]",
-	Short: "Print an Invoice",
-	Long:  `Print an Invoice from the API`,
+	Use:   "invoice [id...]",
+	Short: "Print one or more Invoices",
+	Long:  `Print one or more Invoices from the API`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) == 0 {
-			fmt.Println("Error: Invoice ID is required")
+			fmt.Println("Error: At least one Invoice ID is required")
 			return
 		}
-		id, err := strconv.Atoi(args[0])
-		if err != nil {
-			fmt.Println("Error: Invoice ID must be an integer")
-			return
-		}
+
 		pdf, _ := cmd.Flags().GetBool("pdf")
 
-		filePath, err := GetFactura(id, pdf)
-		if err != nil {
-			fmt.Println("Error:", err)
-			return
-		}
+		for _, arg := range args {
+			id, err := strconv.Atoi(arg)
+			if err != nil {
+				fmt.Printf("Error: Invoice ID '%s' must be an integer\n", arg)
+				continue
+			}
 
-		if pdf {
-			fmt.Printf("Invoice %d saved as %s\n", id, filePath)
-		} else {
-			fmt.Printf("Invoice %d saved as %s\n", id, filePath)
+			filePath, err := GetFactura(id, pdf)
+			if err != nil {
+				fmt.Printf("Error processing invoice %d: %v\n", id, err)
+				continue
+			}
+
+			if pdf {
+				fmt.Printf("Invoice %d saved as %s\n", id, filePath)
+			} else {
+				fmt.Printf("Invoice %d saved as %s\n", id, filePath)
+			}
 		}
 	},
 }
-
-
 var PrintCotizacionCmd = &cobra.Command{
-	Use:   "quotation [id]",
-	Short: "Print a Quotation",
-	Long:  `Print a Quotation from the API`,
+	Use:   "quotation [id...]",
+	Short: "Print one or more Quotations",
+	Long:  `Print one or more Quotations from the API`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) == 0 {
-			fmt.Println("Error: Quotation ID is required")
+			fmt.Println("Error: At least one Quotation ID is required") 
 			return
 		}
-		id, err := strconv.Atoi(args[0])
-		if err != nil {
-			fmt.Println("Error: Quotation ID must be an integer")
-			return
-		}
+
 		pdf, _ := cmd.Flags().GetBool("pdf")
 
-		filePath, err := GetCotizacion(id, pdf)
-		if err != nil {
-			fmt.Println("Error:", err)
-			return
-		}
-		if pdf {
-			fmt.Printf("Quotation %d saved as %s\n", id, filePath)
-		} else {
-			fmt.Printf("Quotation %d saved as %s\n", id, filePath)
+		for _, arg := range args {
+			id, err := strconv.Atoi(arg)
+			if err != nil {
+				fmt.Printf("Error: Quotation ID '%s' must be an integer\n", arg)
+				continue
+			}
+
+			filePath, err := GetCotizacion(id, pdf)
+			if err != nil {
+				fmt.Printf("Error processing quotation %d: %v\n", id, err)
+				continue
+			}
+
+			if pdf {
+				fmt.Printf("Quotation %d saved as %s\n", id, filePath)
+			} else {
+				fmt.Printf("Quotation %d saved as %s\n", id, filePath)
+			}
 		}
 	},
 }
@@ -158,13 +166,40 @@ func convertToPDF(docxPath string) (string, error) {
 		return "", fmt.Errorf("PDF file not found after conversion: %s", generatedPdfPath)
 	}
 
-	// Delete the original DOCX file
-	err = os.Remove(docxPath)
-	if err != nil {
-		// Log error but don't fail the whole operation if PDF was created
-		fmt.Printf("Warning: could not delete original DOCX file %s: %v\n", docxPath, err)
-	}
+	// Don't delete the original DOCX file anymore - we want to keep it to open with LibreOffice
 	return generatedPdfPath, nil // Return path of PDF in current dir, to be moved later
+}
+
+func openFileOnLinux(filePath string) {
+	if runtime.GOOS != "linux" {
+		return
+	}
+
+	ext := filepath.Ext(filePath)
+	var cmd *exec.Cmd
+
+	switch ext {
+	case ".docx":
+		// Check if libreoffice is available
+		if _, err := exec.LookPath("libreoffice"); err == nil {
+			cmd = exec.Command("libreoffice", filePath)
+		}
+	case ".pdf":
+		// Check if okular is available
+		if _, err := exec.LookPath("okular"); err == nil {
+			cmd = exec.Command("okular", filePath)
+		}
+	}
+
+	if cmd != nil {
+		// Run in background so it doesn't block the CLI
+		go func() {
+			err := cmd.Start()
+			if err != nil {
+				fmt.Printf("Warning: could not open file %s: %v\n", filePath, err)
+			}
+		}()
+	}
 }
 
 func GetCotizacion(id int, convertToPdfFlag bool) (string, error) {
@@ -210,25 +245,47 @@ func GetCotizacion(id int, convertToPdfFlag bool) (string, error) {
 	}
 	out.Close() // Close the file before conversion or moving
 
-	finalFilePath := localFilename
+	var finalFilePath string
+	var docxDesktopPath string
 
 	if convertToPdfFlag {
 		pdfPath, err := convertToPDF(localFilename)
 		if err != nil {
-			// Don't remove localFilename here, as convertToPDF might have already removed it or user might want the docx
 			return "", fmt.Errorf("error converting quotation to PDF: %w", err)
 		}
-		finalFilePath = pdfPath
+
+		// Move both DOCX and PDF to desktop
+		docxDesktopPath, err = moveFileToDesktop(localFilename)
+		if err != nil {
+			fmt.Printf("Warning: could not move DOCX file to desktop: %v. File saved at %s\n", err, localFilename)
+			docxDesktopPath = localFilename
+		}
+
+		pdfDesktopPath, err := moveFileToDesktop(pdfPath)
+		if err != nil {
+			fmt.Printf("Warning: could not move PDF file to desktop: %v. File saved at %s\n", err, pdfPath)
+			finalFilePath = pdfPath
+		} else {
+			finalFilePath = pdfDesktopPath
+		}
+
+		// Open both files on Linux
+		openFileOnLinux(docxDesktopPath)
+		openFileOnLinux(finalFilePath)
+	} else {
+		desktopPath, err := moveFileToDesktop(localFilename)
+		if err != nil {
+			// If move fails, return the path in the current directory as a fallback
+			fmt.Printf("Warning: could not move file to desktop: %v. File saved at %s\n", err, localFilename)
+			finalFilePath = localFilename
+		} else {
+			finalFilePath = desktopPath
+		}
+
+		openFileOnLinux(finalFilePath)
 	}
 
-	desktopPath, err := moveFileToDesktop(finalFilePath)
-	if err != nil {
-		// If move fails, return the path in the current directory as a fallback
-		fmt.Printf("Warning: could not move file to desktop: %v. File saved at %s\n", err, finalFilePath)
-		return finalFilePath, nil
-	}
-
-	return desktopPath, nil
+	return finalFilePath, nil
 }
 
 func GetFactura(id int, convertToPdfFlag bool) (string, error) {
@@ -274,23 +331,45 @@ func GetFactura(id int, convertToPdfFlag bool) (string, error) {
 	}
 	out.Close() // Close the file before conversion or moving
 
-	finalFilePath := localFilename
+	var finalFilePath string
+	var docxDesktopPath string
 
 	if convertToPdfFlag {
 		pdfPath, err := convertToPDF(localFilename)
 		if err != nil {
-			// Don't remove localFilename here, as convertToPDF might have already removed it or user might want the docx
 			return "", fmt.Errorf("error converting invoice to PDF: %w", err)
 		}
-		finalFilePath = pdfPath
+
+		// Move both DOCX and PDF to desktop
+		docxDesktopPath, err = moveFileToDesktop(localFilename)
+		if err != nil {
+			fmt.Printf("Warning: could not move DOCX file to desktop: %v. File saved at %s\n", err, localFilename)
+			docxDesktopPath = localFilename
+		}
+
+		pdfDesktopPath, err := moveFileToDesktop(pdfPath)
+		if err != nil {
+			fmt.Printf("Warning: could not move PDF file to desktop: %v. File saved at %s\n", err, pdfPath)
+			finalFilePath = pdfPath
+		} else {
+			finalFilePath = pdfDesktopPath
+		}
+
+		// Open both files on Linux
+		openFileOnLinux(docxDesktopPath)
+		openFileOnLinux(finalFilePath)
+	} else {
+		desktopPath, err := moveFileToDesktop(localFilename)
+		if err != nil {
+			// If move fails, return the path in the current directory as a fallback
+			fmt.Printf("Warning: could not move file to desktop: %v. File saved at %s\n", err, localFilename)
+			finalFilePath = localFilename
+		} else {
+			finalFilePath = desktopPath
+		}
+
+		openFileOnLinux(finalFilePath)
 	}
 
-	desktopPath, err := moveFileToDesktop(finalFilePath)
-	if err != nil {
-		// If move fails, return the path in the current directory as a fallback
-		fmt.Printf("Warning: could not move file to desktop: %v. File saved at %s\n", err, finalFilePath)
-		return finalFilePath, nil
-	}
-
-	return desktopPath, nil
+	return finalFilePath, nil
 }

@@ -61,3 +61,10 @@ func (m SpinnerModel) View() string {
 	}
 	return str
 }
+
+// ShowSpinner shows a spinner with a message using alt screen
+func ShowSpinner(message string) {
+	model := InitialSpinnerModel(message)
+	p := tea.NewProgram(model, tea.WithAltScreen())
+	p.Run()
+}

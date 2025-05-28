@@ -75,7 +75,7 @@ func (m TextInputModel) View() string {
 // GetInput presents a text input prompt and returns the user's input
 func GetInput(question string) string {
 	model := TextInput(question, "")
-	p := tea.NewProgram(model)
+	p := tea.NewProgram(model, tea.WithAltScreen())
 	result, _ := p.Run()
 	finalModel := result.(TextInputModel)
 	return strings.TrimSpace(finalModel.TextInput.Value())
@@ -85,7 +85,7 @@ func GetInput(question string) string {
 func GetInputWithDefault(question, defaultValue string) string {
 	model := TextInput(question, defaultValue)
 	model.TextInput.SetValue(defaultValue)
-	p := tea.NewProgram(model)
+	p := tea.NewProgram(model, tea.WithAltScreen())
 	result, _ := p.Run()
 	finalModel := result.(TextInputModel)
 	value := strings.TrimSpace(finalModel.TextInput.Value())

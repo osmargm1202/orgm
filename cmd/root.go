@@ -2,9 +2,13 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 
 	"github.com/osmargm1202/orgm/cmd/adm"
 	"github.com/osmargm1202/orgm/cmd/misc"
@@ -14,6 +18,22 @@ import (
 )
 
 var version = "v0.132"
+
+var UpdateCmd = &cobra.Command{
+	Use:   "update",
+	Short: "Update the application",
+	Run: func(cmd *cobra.Command, args []string) {
+		updateFunc()
+	},
+}
+
+var InstallCmd = &cobra.Command{
+	Use:   "install",
+	Short: "Install the application in dev Linux",
+	Run: func(cmd *cobra.Command, args []string) {
+		installFunc()
+	},
+}
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
@@ -49,6 +69,8 @@ func Execute() {
 
 func init() {
 	cobra.OnInitialize(initConfig)
+	RootCmd.AddCommand(InstallCmd)
+	RootCmd.AddCommand(UpdateCmd)
 	RootCmd.AddCommand(versionCmd)
 	RootCmd.AddCommand(adm.AdmCmd)
 	RootCmd.AddCommand(misc.MiscCmd)
@@ -91,4 +113,126 @@ func initConfig() {
 		// Config file found and successfully parsed
 		fmt.Println("Using config file:", viper.ConfigFileUsed())
 	}
+}
+
+func installFunc() {
+	fmt.Printf("%s\n", inputs.TitleStyle.Render("Installing the application in dev Linux"))
+
+	cmd := exec.Command("go", "build", "-o", "orgm", ".")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err := cmd.Run()
+	if err != nil {
+		fmt.Printf("Error during go build: %v\n", err)
+		return
+	}
+
+	cmd = exec.Command("go", "install")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err = cmd.Run()
+	if err != nil {
+		fmt.Printf("Error during go install: %v\n", err)
+		return
+	}
+
+	fmt.Printf("%s\n", inputs.SuccessStyle.Render("✓ Build and install completed successfully"))
+
+}
+
+func updateFunc() {
+	fmt.Printf("%s\n", inputs.TitleStyle.Render("Updating the application"))
+
+	// Determine the download URL and installation path based on OS
+	var downloadURL, installPath string
+
+	switch runtime.GOOS {
+	case "windows":
+		downloadURL = "https://github.com/osmargm1202/orgm/releases/latest/download/orgm.exe"
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			fmt.Printf("Error getting home directory: %v\n", err)
+			return
+		}
+		installPath = filepath.Join(homeDir, ".config", "orgm", "orgm.exe")
+	case "linux":
+		downloadURL = "https://github.com/osmargm1202/orgm/releases/latest/download/orgm"
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			fmt.Printf("Error getting home directory: %v\n", err)
+			return
+		}
+		installPath = filepath.Join(homeDir, ".local", "bin", "orgm")
+	default:
+		fmt.Printf("Unsupported operating system: %s\n", runtime.GOOS)
+		return
+	}
+
+	// Create the directory if it doesn't exist
+	if err := os.MkdirAll(filepath.Dir(installPath), 0755); err != nil {
+		fmt.Printf("Error creating directory: %v\n", err)
+		return
+	}
+
+	// Download the latest version
+	fmt.Printf("%s\n", inputs.InfoStyle.Render("Downloading latest version..."))
+
+	resp, err := http.Get(downloadURL)
+	if err != nil {
+		fmt.Printf("Error downloading file: %v\n", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		fmt.Printf("Error: HTTP %d when downloading %s\n", resp.StatusCode, downloadURL)
+		return
+	}
+
+	// Create temporary file
+	tempFile := installPath + ".tmp"
+	out, err := os.Create(tempFile)
+	if err != nil {
+		fmt.Printf("Error creating temporary file: %v\n", err)
+		return
+	}
+	defer out.Close()
+
+	// Copy downloaded content to temporary file
+	_, err = io.Copy(out, resp.Body)
+	if err != nil {
+		fmt.Printf("Error writing file: %v\n", err)
+		os.Remove(tempFile)
+		return
+	}
+
+	// Close the file before moving it
+	out.Close()
+
+	// Remove existing file if it exists and replace with new one
+	if _, err := os.Stat(installPath); err == nil {
+		if err := os.Remove(installPath); err != nil {
+			fmt.Printf("Error removing old file: %v\n", err)
+			os.Remove(tempFile)
+			return
+		}
+	}
+
+	// Move temporary file to final location
+	if err := os.Rename(tempFile, installPath); err != nil {
+		fmt.Printf("Error moving file to final location: %v\n", err)
+		os.Remove(tempFile)
+		return
+	}
+
+	// Set executable permissions on Linux
+	if runtime.GOOS == "linux" {
+		if err := os.Chmod(installPath, 0755); err != nil {
+			fmt.Printf("Error setting executable permissions: %v\n", err)
+			return
+		}
+	}
+
+	fmt.Printf("%s\n", inputs.SuccessStyle.Render("✓ Application updated successfully"))
+	fmt.Printf("%s %s\n", inputs.InfoStyle.Render("Updated executable location:"), installPath)
 }

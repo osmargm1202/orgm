@@ -61,7 +61,7 @@ var RncSearchCmd = &cobra.Command{
 	Short: "find company in database",
 	Long:  `find company in database by name or RNC, Razon Social, etc.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		p := tea.NewProgram(inputs.TextInput("Ingrese términos de búsqueda:", "Ejemplo: Banco Popular"))
+		p := tea.NewProgram(inputs.TextInput("Ingrese términos de búsqueda:", "Ejemplo: Banco Popular"), tea.WithAltScreen())
 		m, err := p.Run()
 		if err != nil {
 			fmt.Println("Error:", err)
@@ -91,7 +91,7 @@ var RncSearchCmd = &cobra.Command{
 			return
 		}
 
-		tableProgram := tea.NewProgram(initialTableModel(results))
+		tableProgram := tea.NewProgram(initialTableModel(results), tea.WithAltScreen())
 		if _, err := tableProgram.Run(); err != nil {
 			fmt.Println("Error al mostrar la tabla:", err)
 		}
@@ -175,6 +175,7 @@ func searchInDatabase(searchQuery string) ([]Result, error) {
 
 	return results, nil
 }
+
 // tableModel represents the state of the table UI
 type tableModel struct {
 	table   table.Model
@@ -243,8 +244,6 @@ func (m tableModel) procesarDatos(rnc, razonSocial string) tea.Cmd {
 		// Aquí puedes agregar más lógica de procesamiento
 	)
 }
-
-
 
 // Update handles messages and updates the model.
 func (m tableModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -327,7 +326,7 @@ func dgiiDownload() (string, error) {
 
 	// Start spinner in goroutine
 	go func() {
-		p := tea.NewProgram(inputs.InitialSpinnerModel("Descargando Base de Datos...DGII"))
+		p := tea.NewProgram(inputs.InitialSpinnerModel("Descargando Base de Datos...DGII"), tea.WithAltScreen())
 		go func() {
 			<-done // Wait for download to complete
 			p.Quit()
@@ -499,7 +498,7 @@ func creacionBd(sourceCsvPath string) error {
 	done := make(chan struct{})
 	spinnerActive := true // To control spinner message update
 
-	p := tea.NewProgram(inputs.InitialSpinnerModel(fmt.Sprintf("Procesando %s...", filepath.Base(sourceCsvPath))))
+	p := tea.NewProgram(inputs.InitialSpinnerModel(fmt.Sprintf("Procesando %s...", filepath.Base(sourceCsvPath))), tea.WithAltScreen())
 	go func() {
 		if _, err := p.Run(); err != nil {
 			fmt.Printf("Spinner error: %v\n", err)

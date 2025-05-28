@@ -503,7 +503,7 @@ func cotizacionesSelectMenu(cots []Cotizacion) inputs.SelectionModelS {
 
 // Reemplazar el menú clásico por Bubble Tea
 func menu() {
-	p := tea.NewProgram(initialFolderModel())
+	p := tea.NewProgram(initialFolderModel(), tea.WithAltScreen())
 	p.Run()
 }
 
