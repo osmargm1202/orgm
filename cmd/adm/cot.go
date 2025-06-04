@@ -384,7 +384,7 @@ func crearCotizacion() {
 
 			printBtn := widget.NewButton("Imprimir Cotización", func() {
 				go func() {
-					filePath, err := GetCotizacion(idCotizacion, false)
+					filePath, err := GetCotizacion(idCotizacion)
 					if err != nil {
 						fmt.Println("Error al imprimir cotización:", err)
 					} else {

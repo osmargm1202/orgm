@@ -485,7 +485,7 @@ func copiarCotizacion() {
 	imprimir := inputs.SelectList("¿Desea imprimir la nueva cotización?", imprimirItems)
 
 	if imprimir.ID == "si" {
-		filePath, err := GetCotizacion(idNuevaCotizacion, false)
+		filePath, err := GetCotizacion(idNuevaCotizacion)
 		if err != nil {
 			fmt.Println("Error al generar el documento:", err)
 		} else {

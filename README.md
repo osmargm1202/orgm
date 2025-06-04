@@ -21,7 +21,7 @@ setx PATH "%PATH%;$env:USERPROFILE\.config\orgm"
 ### Download
 
 ```
-curl -L https://github.com/osmargm1202/orgm/releases/latest/download/orgm -o $HOME/.local/bin/orgm && chmod +x $HOME/.local/bin/orgm
+sudo curl -L https://github.com/osmargm1202/orgm/releases/latest/download/orgm -o /usr/bin/orgm && sudo chmod +x /usr/bin/orgm
 ```
 
 ## TO-DO
@@ -29,7 +29,5 @@ curl -L https://github.com/osmargm1202/orgm/releases/latest/download/orgm -o $HO
 - Portadas (Docs)
 - Crear Carpetas
 - Crear AI configs
-- Buscar empresa RNC
 - Cartas
-- Calculos
-- 
+- Calculos 

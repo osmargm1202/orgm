@@ -1,26 +1,23 @@
 package adm
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
+	"time"
 
 	"github.com/spf13/cobra"
-)
-
-var (
-	pdfFlag bool
+	"github.com/spf13/viper"
 )
 
 var PdfCmd = &cobra.Command{
 	Use:   "pdf",
-	Short: "Print a PDF",
-	Long:  `Print a PDF from the API`,
+	Short: "Print documents",
+	Long:  `Print documents from the API`,
 }
 
 var PrintFacturaCmd = &cobra.Command{
@@ -33,8 +30,6 @@ var PrintFacturaCmd = &cobra.Command{
 			return
 		}
 
-		pdf, _ := cmd.Flags().GetBool("pdf")
-
 		for _, arg := range args {
 			id, err := strconv.Atoi(arg)
 			if err != nil {
@@ -42,31 +37,26 @@ var PrintFacturaCmd = &cobra.Command{
 				continue
 			}
 
-			filePath, err := GetFactura(id, pdf)
+			filePath, err := GetFactura(id)
 			if err != nil {
 				fmt.Printf("Error processing invoice %d: %v\n", id, err)
 				continue
 			}
 
-			if pdf {
-				fmt.Printf("Invoice %d saved as %s\n", id, filePath)
-			} else {
-				fmt.Printf("Invoice %d saved as %s\n", id, filePath)
-			}
+			fmt.Printf("Invoice %d saved as %s\n", id, filePath)
 		}
 	},
 }
+
 var PrintCotizacionCmd = &cobra.Command{
 	Use:   "quotation [id...]",
 	Short: "Print one or more Quotations",
 	Long:  `Print one or more Quotations from the API`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) == 0 {
-			fmt.Println("Error: At least one Quotation ID is required") 
+			fmt.Println("Error: At least one Quotation ID is required")
 			return
 		}
-
-		pdf, _ := cmd.Flags().GetBool("pdf")
 
 		for _, arg := range args {
 			id, err := strconv.Atoi(arg)
@@ -75,135 +65,142 @@ var PrintCotizacionCmd = &cobra.Command{
 				continue
 			}
 
-			filePath, err := GetCotizacion(id, pdf)
+			filePath, err := GetCotizacion(id)
 			if err != nil {
 				fmt.Printf("Error processing quotation %d: %v\n", id, err)
 				continue
 			}
 
-			if pdf {
-				fmt.Printf("Quotation %d saved as %s\n", id, filePath)
-			} else {
-				fmt.Printf("Quotation %d saved as %s\n", id, filePath)
-			}
+			fmt.Printf("Quotation %d saved as %s\n", id, filePath)
 		}
 	},
 }
 
 func init() {
 	AdmCmd.AddCommand(PdfCmd)
-	PrintFacturaCmd.Flags().BoolVarP(&pdfFlag, "pdf", "p", false, "Convert output to PDF (LibreOffice is required)")
 	PdfCmd.AddCommand(PrintFacturaCmd)
-	PrintCotizacionCmd.Flags().BoolVarP(&pdfFlag, "pdf", "p", false, "Convert output to PDF (LibreOffice is required)")
 	PdfCmd.AddCommand(PrintCotizacionCmd)
 }
 
-func moveFileToDesktop(sourcePath string) (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("error getting user home directory: %w", err)
-	}
-	desktopPath := filepath.Join(homeDir, "Desktop")
-	fileName := filepath.Base(sourcePath)
-	destPath := filepath.Join(desktopPath, fileName)
-
-	// Create Desktop directory if it doesn't exist
-	if _, err := os.Stat(desktopPath); os.IsNotExist(err) {
-		err = os.MkdirAll(desktopPath, 0755)
-		if err != nil {
-			return "", fmt.Errorf("error creating desktop directory %s: %w", desktopPath, err)
-		}
-	}
-
-	err = os.Rename(sourcePath, destPath)
-	if err != nil {
-		// If rename fails (e.g. cross-device link), try copy and delete
-		in, err := os.Open(sourcePath)
-		if err != nil {
-			return "", fmt.Errorf("error opening source file for copy %s: %w", sourcePath, err)
-		}
-		defer in.Close()
-
-		out, err := os.Create(destPath)
-		if err != nil {
-			return "", fmt.Errorf("error creating destination file for copy %s: %w", destPath, err)
-		}
-		defer out.Close()
-
-		_, err = io.Copy(out, in)
-		if err != nil {
-			return "", fmt.Errorf("error copying file from %s to %s: %w", sourcePath, destPath, err)
-		}
-		out.Close() // Ensure file is closed before removing source
-
-		err = os.Remove(sourcePath)
-		if err != nil {
-			// Log error but don't fail the whole operation if copy was successful
-			fmt.Printf("Warning: could not delete original file after copying %s: %v\n", sourcePath, err)
-		}
-	}
-	return destPath, nil
+// Estructura para el schema.json
+type Schema struct {
+	Tipos map[string]struct {
+		Carpetas []string `json:"carpetas"`
+	} `json:"tipos"`
 }
 
-func convertToPDF(docxPath string) (string, error) {
-	if _, err := exec.LookPath("libreoffice"); err != nil {
-		return "", fmt.Errorf("libreoffice not found in PATH. Please install LibreOffice to use the PDF conversion feature: %w", err)
+// Función para crear estructura de carpetas basada en fecha
+func crearEstructuraCarpetas(tipoDocumento string, fecha time.Time) (string, error) {
+	// Obtener la ruta base de configuración
+	configPath := viper.GetString("config_path")
+	if configPath == "" {
+		return "", fmt.Errorf("la variable 'config_path' no está configurada en viper")
 	}
 
-	// Convert in the current directory first, then move
-	outDir := filepath.Dir(docxPath)
-	cmd := exec.Command("libreoffice", "--headless", "--convert-to", "pdf", docxPath, "--outdir", outDir)
-	err := cmd.Run()
+	// Obtener la ruta base de administración
+	rutaAdmin := viper.GetString("carpetas.administracion")
+	if rutaAdmin == "" {
+		return "", fmt.Errorf("la variable 'carpetas.administracion' no está configurada en viper")
+	}
+
+	// Expandir ~ a homedir si está presente
+	if len(rutaAdmin) > 0 && rutaAdmin[0] == '~' {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("error obteniendo directorio home: %w", err)
+		}
+		rutaAdmin = filepath.Join(home, rutaAdmin[1:])
+	}
+
+	// Crear estructura: [rutaBase]/[año]/[mes]/
+	ano := fecha.Format("2006")
+	mes := fecha.Format("01")
+	rutaBaseTemporal := filepath.Join(rutaAdmin, ano, mes)
+
+	// Leer schema.json para obtener las carpetas de administración
+	schemaPath := filepath.Join(configPath, "folder", "schema.json")
+	schemaFile, err := os.ReadFile(schemaPath)
 	if err != nil {
-		return "", fmt.Errorf("error converting to PDF: %w", err)
+		return "", fmt.Errorf("error leyendo schema.json desde %s: %w", schemaPath, err)
 	}
 
-	pdfFileName := filepath.Base(docxPath[0:len(filepath.Base(docxPath))-len(filepath.Ext(docxPath))] + ".pdf")
-	generatedPdfPath := filepath.Join(outDir, pdfFileName)
-
-	// Verify PDF creation
-	if _, err := os.Stat(generatedPdfPath); os.IsNotExist(err) {
-		return "", fmt.Errorf("PDF file not found after conversion: %s", generatedPdfPath)
+	var schema Schema
+	if err := json.Unmarshal(schemaFile, &schema); err != nil {
+		return "", fmt.Errorf("error parseando schema.json: %w", err)
 	}
 
-	// Don't delete the original DOCX file anymore - we want to keep it to open with LibreOffice
-	return generatedPdfPath, nil // Return path of PDF in current dir, to be moved later
-}
-
-func openFileOnLinux(filePath string) {
-	if runtime.GOOS != "linux" {
-		return
+	// Obtener las carpetas de administración
+	adminTipo, exists := schema.Tipos["Administracion"]
+	if !exists {
+		return "", fmt.Errorf("no se encontró el tipo 'Administracion' en schema.json")
 	}
 
-	ext := filepath.Ext(filePath)
-	var cmd *exec.Cmd
-
-	switch ext {
-	case ".docx":
-		// Check if libreoffice is available
-		if _, err := exec.LookPath("libreoffice"); err == nil {
-			cmd = exec.Command("libreoffice", filePath)
-		}
-	case ".pdf":
-		// Check if okular is available
-		if _, err := exec.LookPath("okular"); err == nil {
-			cmd = exec.Command("okular", filePath)
+	// Crear todas las carpetas de administración
+	for _, carpeta := range adminTipo.Carpetas {
+		rutaCompleta := filepath.Join(rutaBaseTemporal, carpeta)
+		err := os.MkdirAll(rutaCompleta, 0755)
+		if err != nil {
+			return "", fmt.Errorf("error creando carpeta %s: %w", rutaCompleta, err)
 		}
 	}
 
-	if cmd != nil {
-		// Run in background so it doesn't block the CLI
-		go func() {
-			err := cmd.Start()
-			if err != nil {
-				fmt.Printf("Warning: could not open file %s: %v\n", filePath, err)
-			}
-		}()
+	// Determinar la carpeta específica donde guardar el documento
+	var carpetaDestino string
+	if tipoDocumento == "factura" {
+		carpetaDestino = "Ventas"
+	} else if tipoDocumento == "cotizacion" {
+		carpetaDestino = "Cotizaciones"
+	} else {
+		return "", fmt.Errorf("tipo de documento no válido: %s", tipoDocumento)
 	}
+
+	rutaFinal := filepath.Join(rutaBaseTemporal, carpetaDestino)
+	return rutaFinal, nil
 }
 
-func GetCotizacion(id int, convertToPdfFlag bool) (string, error) {
-	apiURL, headers := InitializeApi()
+// Función auxiliar para parsear fechas
+func parsearFechaDocumento(fechaStr string) (time.Time, error) {
+	// Usar el mismo formato que en fac.go: mes/día/año
+	formato := "01/02/2006" // mm/dd/yyyy
+
+	fecha, err := time.Parse(formato, fechaStr)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("la fecha '%s' no está en el formato correcto (mes/dia/año)", fechaStr)
+	}
+
+	return fecha, nil
+}
+
+func GetCotizacion(id int) (string, error) {
+	// Primero obtener los datos de la cotización para obtener la fecha
+	postgrestURL, headers := InitializePostgrest()
+	if postgrestURL == "" {
+		return "", fmt.Errorf("error initializing PostgREST URL")
+	}
+
+	cotizacionURL := fmt.Sprintf("%s/cotizacion?id=eq.%d", postgrestURL, id)
+	respData, err := MakeRequest("GET", cotizacionURL, headers, nil)
+	if err != nil {
+		return "", fmt.Errorf("error getting quotation data: %v", err)
+	}
+
+	var cotizaciones []Cotizacion
+	if err := json.Unmarshal(respData, &cotizaciones); err != nil {
+		return "", fmt.Errorf("error parsing quotation data: %v", err)
+	}
+
+	if len(cotizaciones) == 0 {
+		return "", fmt.Errorf("quotation with ID %d not found", id)
+	}
+
+	// Parsear la fecha de la cotización
+	fechaCotizacion, err := parsearFechaDocumento(cotizaciones[0].Fecha)
+	if err != nil {
+		return "", fmt.Errorf("error parsing quotation date: %w", err)
+	}
+
+	// Ahora descargar el archivo DOCX
+	apiURL, apiHeaders := InitializeApi()
 	if apiURL == "" {
 		return "", fmt.Errorf("error initializing API URL")
 	}
@@ -216,7 +213,7 @@ func GetCotizacion(id int, convertToPdfFlag bool) (string, error) {
 		return "", fmt.Errorf("error creating request: %v", err)
 	}
 
-	for key, value := range headers {
+	for key, value := range apiHeaders {
 		req.Header.Add(key, value)
 	}
 
@@ -230,66 +227,62 @@ func GetCotizacion(id int, convertToPdfFlag bool) (string, error) {
 		return "", fmt.Errorf("error response status: %d", resp.StatusCode)
 	}
 
-	// Create output file in current directory first
-	localFilename := fmt.Sprintf("cotizacion_%d.docx", id)
-	out, err := os.Create(localFilename)
+	// Usar la fecha de la cotización para crear la estructura de carpetas
+	rutaCarpeta, err := crearEstructuraCarpetas("cotizacion", fechaCotizacion)
+	if err != nil {
+		return "", fmt.Errorf("error creando estructura de carpetas: %w", err)
+	}
+
+	// Crear el archivo en la ruta final
+	fileName := fmt.Sprintf("cotizacion_%d.docx", id)
+	filePath := filepath.Join(rutaCarpeta, fileName)
+
+	out, err := os.Create(filePath)
 	if err != nil {
 		return "", fmt.Errorf("error creating file: %v", err)
 	}
 
 	_, err = io.Copy(out, resp.Body)
 	if err != nil {
-		out.Close()              // Close before attempting to remove on error
-		os.Remove(localFilename) // Clean up partially written file
+		out.Close()
+		os.Remove(filePath)
 		return "", fmt.Errorf("error writing file: %v", err)
 	}
-	out.Close() // Close the file before conversion or moving
+	out.Close()
 
-	var finalFilePath string
-	var docxDesktopPath string
-
-	if convertToPdfFlag {
-		pdfPath, err := convertToPDF(localFilename)
-		if err != nil {
-			return "", fmt.Errorf("error converting quotation to PDF: %w", err)
-		}
-
-		// Move both DOCX and PDF to desktop
-		docxDesktopPath, err = moveFileToDesktop(localFilename)
-		if err != nil {
-			fmt.Printf("Warning: could not move DOCX file to desktop: %v. File saved at %s\n", err, localFilename)
-			docxDesktopPath = localFilename
-		}
-
-		pdfDesktopPath, err := moveFileToDesktop(pdfPath)
-		if err != nil {
-			fmt.Printf("Warning: could not move PDF file to desktop: %v. File saved at %s\n", err, pdfPath)
-			finalFilePath = pdfPath
-		} else {
-			finalFilePath = pdfDesktopPath
-		}
-
-		// Open both files on Linux
-		openFileOnLinux(docxDesktopPath)
-		openFileOnLinux(finalFilePath)
-	} else {
-		desktopPath, err := moveFileToDesktop(localFilename)
-		if err != nil {
-			// If move fails, return the path in the current directory as a fallback
-			fmt.Printf("Warning: could not move file to desktop: %v. File saved at %s\n", err, localFilename)
-			finalFilePath = localFilename
-		} else {
-			finalFilePath = desktopPath
-		}
-
-		openFileOnLinux(finalFilePath)
-	}
-
-	return finalFilePath, nil
+	return filePath, nil
 }
 
-func GetFactura(id int, convertToPdfFlag bool) (string, error) {
-	apiURL, headers := InitializeApi()
+func GetFactura(id int) (string, error) {
+	// Primero obtener los datos de la factura para obtener la fecha
+	postgrestURL, headers := InitializePostgrest()
+	if postgrestURL == "" {
+		return "", fmt.Errorf("error initializing PostgREST URL")
+	}
+
+	facturaURL := fmt.Sprintf("%s/factura?id=eq.%d", postgrestURL, id)
+	respData, err := MakeRequest("GET", facturaURL, headers, nil)
+	if err != nil {
+		return "", fmt.Errorf("error getting invoice data: %v", err)
+	}
+
+	var facturas []Factura
+	if err := json.Unmarshal(respData, &facturas); err != nil {
+		return "", fmt.Errorf("error parsing invoice data: %v", err)
+	}
+
+	if len(facturas) == 0 {
+		return "", fmt.Errorf("invoice with ID %d not found", id)
+	}
+
+	// Parsear la fecha de la factura
+	fechaFactura, err := parsearFechaDocumento(facturas[0].Fecha)
+	if err != nil {
+		return "", fmt.Errorf("error parsing invoice date: %w", err)
+	}
+
+	// Ahora descargar el archivo DOCX
+	apiURL, apiHeaders := InitializeApi()
 	if apiURL == "" {
 		return "", fmt.Errorf("error initializing API URL")
 	}
@@ -302,7 +295,7 @@ func GetFactura(id int, convertToPdfFlag bool) (string, error) {
 		return "", fmt.Errorf("error creating request: %v", err)
 	}
 
-	for key, value := range headers {
+	for key, value := range apiHeaders {
 		req.Header.Add(key, value)
 	}
 
@@ -316,60 +309,28 @@ func GetFactura(id int, convertToPdfFlag bool) (string, error) {
 		return "", fmt.Errorf("error response status: %d", resp.StatusCode)
 	}
 
-	// Create output file in current directory first
-	localFilename := fmt.Sprintf("factura_%d.docx", id)
-	out, err := os.Create(localFilename)
+	// Usar la fecha de la factura para crear la estructura de carpetas
+	rutaCarpeta, err := crearEstructuraCarpetas("factura", fechaFactura)
+	if err != nil {
+		return "", fmt.Errorf("error creando estructura de carpetas: %w", err)
+	}
+
+	// Crear el archivo en la ruta final
+	fileName := fmt.Sprintf("factura_%d.docx", id)
+	filePath := filepath.Join(rutaCarpeta, fileName)
+
+	out, err := os.Create(filePath)
 	if err != nil {
 		return "", fmt.Errorf("error creating file: %v", err)
 	}
 
 	_, err = io.Copy(out, resp.Body)
 	if err != nil {
-		out.Close()              // Close before attempting to remove on error
-		os.Remove(localFilename) // Clean up partially written file
+		out.Close()
+		os.Remove(filePath)
 		return "", fmt.Errorf("error writing file: %v", err)
 	}
-	out.Close() // Close the file before conversion or moving
+	out.Close()
 
-	var finalFilePath string
-	var docxDesktopPath string
-
-	if convertToPdfFlag {
-		pdfPath, err := convertToPDF(localFilename)
-		if err != nil {
-			return "", fmt.Errorf("error converting invoice to PDF: %w", err)
-		}
-
-		// Move both DOCX and PDF to desktop
-		docxDesktopPath, err = moveFileToDesktop(localFilename)
-		if err != nil {
-			fmt.Printf("Warning: could not move DOCX file to desktop: %v. File saved at %s\n", err, localFilename)
-			docxDesktopPath = localFilename
-		}
-
-		pdfDesktopPath, err := moveFileToDesktop(pdfPath)
-		if err != nil {
-			fmt.Printf("Warning: could not move PDF file to desktop: %v. File saved at %s\n", err, pdfPath)
-			finalFilePath = pdfPath
-		} else {
-			finalFilePath = pdfDesktopPath
-		}
-
-		// Open both files on Linux
-		openFileOnLinux(docxDesktopPath)
-		openFileOnLinux(finalFilePath)
-	} else {
-		desktopPath, err := moveFileToDesktop(localFilename)
-		if err != nil {
-			// If move fails, return the path in the current directory as a fallback
-			fmt.Printf("Warning: could not move file to desktop: %v. File saved at %s\n", err, localFilename)
-			finalFilePath = localFilename
-		} else {
-			finalFilePath = desktopPath
-		}
-
-		openFileOnLinux(finalFilePath)
-	}
-
-	return finalFilePath, nil
+	return filePath, nil
 }
