@@ -127,3 +127,6 @@ func DivisaUSD(a string, cantidad float64) (float64, error) {
 }
 
 
+func init() {
+	MiscCmd.AddCommand(DivisaCmd)
+}

@@ -15,6 +15,10 @@ powershell -Command "Invoke-WebRequest -Uri https://github.com/osmargm1202/orgm/
 setx PATH "%PATH%;$env:USERPROFILE\.config\orgm"
 ```
 
+```
+setx PATH "%PATH%;$env:USERPROFILE\Nextcloud\Apps\bin"
+```
+
 
 ## LINUX
 
@@ -24,10 +28,29 @@ setx PATH "%PATH%;$env:USERPROFILE\.config\orgm"
 sudo curl -L https://github.com/osmargm1202/orgm/releases/latest/download/orgm -o /usr/bin/orgm && sudo chmod +x /usr/bin/orgm
 ```
 
+### set path
+
+```
+echo 'export PATH=$PATH:$HOME/Nextcloud/Apps/bin' >> ~/.bashrc
+source ~/.bashrc
+
+echo 'export PATH=$PATH:$HOME/Nextcloud/Apps/bin' >> ~/.zshrc
+source ~/.zshrc
+
+echo 'export PATH=$PATH:$HOME/Nextcloud/Apps/bin' >> ~/.profile
+source ~/.profile
+
+echo 'export PATH=$PATH:$HOME/Nextcloud/Apps/bin' >> ~/.bash_profile
+source ~/.bash_profile
+
+```
+
 ## TO-DO
 
 - Portadas (Docs)
-- Crear Carpetas
 - Crear AI configs
+- guardar conversacion
 - Cartas
-- Calculos 
+- Calculos
+- buscar cotizaciones
+- Schemas y configs en nube y RNC en Nextcloud

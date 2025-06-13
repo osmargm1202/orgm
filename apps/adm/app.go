@@ -1,4 +1,0 @@
-package adm
-
-import (
-)

@@ -1,6 +1,7 @@
 package adm
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -309,7 +310,9 @@ func crearCotizacion() {
 			IDCliente:     cliente.ID,
 			IDProyecto:    proyecto.ID,
 			IDServicio:    servicio.ID,
+			Moneda:        moneda,
 			Fecha:         time.Now().Format("01/02/2006"),
+			TasaMoneda:    obtenerTasaMoneda(moneda),
 			TiempoEntrega: tiempoEntrega,
 			Avance:        avance,
 			Validez:       validez,
@@ -874,4 +877,88 @@ func GuardarPresupuestoConID(presupuesto Presupuesto, idCotizacion int) bool {
 	fmt.Println("Respuesta:", string(resp))
 
 	return true
+}
+
+// DivisaRequest represents the request body for currency conversion
+type DivisaRequest struct {
+	Desde    string  `json:"desde"`
+	A        string  `json:"a"`
+	Cantidad float64 `json:"cantidad"`
+}
+
+// DivisaResponse represents the response from the API
+type DivisaResponse struct {
+	Resultado float64 `json:"resultado"`
+}
+
+// obtenerTasaMoneda obtiene la tasa de cambio desde USD a la moneda especificada
+func obtenerTasaMoneda(moneda string) float64 {
+	// Si la moneba es USD, la tasa es 1.0
+	if moneda == "USD" {
+		return 1.0
+	}
+
+	// Convertir RD$ a DOP para la API
+	monedaAPI := moneda
+	if moneda == "RD$" {
+		monedaAPI = "DOP"
+	}
+
+	url, headers := InitializeApi()
+	if url == "" {
+		fmt.Println("Error: URL de API no configurada, usando tasa por defecto")
+		return 1.0
+	}
+
+	// Create request body - obtener tasa de 1 USD a la moneda destino
+	reqBody := DivisaRequest{
+		Desde:    "USD",
+		A:        monedaAPI,
+		Cantidad: 1.0,
+	}
+
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		fmt.Printf("Error al serializar request de divisa: %v, usando tasa por defecto\n", err)
+		return 1.0
+	}
+
+	// Create request
+	req, err := http.NewRequest("POST", url+"/divisa", bytes.NewBuffer(jsonBody))
+	if err != nil {
+		fmt.Printf("Error al crear request de divisa: %v, usando tasa por defecto\n", err)
+		return 1.0
+	}
+
+	// Add headers
+	for key, value := range headers {
+		req.Header.Add(key, value)
+	}
+
+	// Make request with timeout
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Printf("Error al obtener tasa de cambio: %v, usando tasa por defecto\n", err)
+		return 1.0
+	}
+	defer resp.Body.Close()
+
+	// Check status code
+	if resp.StatusCode != http.StatusOK {
+		fmt.Printf("API de divisa retornó código %d, usando tasa por defecto\n", resp.StatusCode)
+		return 1.0
+	}
+
+	// Parse response
+	var response DivisaResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		fmt.Printf("Error al decodificar respuesta de divisa: %v, usando tasa por defecto\n", err)
+		return 1.0
+	}
+
+	fmt.Printf("Tasa de cambio obtenida: 1 USD = %.4f %s\n", response.Resultado, moneda)
+	return response.Resultado
 }

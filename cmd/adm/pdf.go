@@ -104,12 +104,12 @@ func crearEstructuraCarpetas(tipoDocumento string, fecha time.Time) (string, err
 	}
 
 	// Expandir ~ a homedir si está presente
-	if len(rutaAdmin) > 0 && rutaAdmin[0] == '~' {
+	if len(rutaAdmin) > 0 {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", fmt.Errorf("error obteniendo directorio home: %w", err)
 		}
-		rutaAdmin = filepath.Join(home, rutaAdmin[1:])
+		rutaAdmin = filepath.Join(home, rutaAdmin)
 	}
 
 	// Crear estructura: [rutaBase]/[año]/[mes]/

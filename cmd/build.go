@@ -6,8 +6,13 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"io"
+	"net/http"
+	"path/filepath"
+	"runtime"
 
 	"github.com/spf13/cobra"
+	"github.com/osmargm1202/orgm/inputs"
 )
 
 var GobuildCmd = &cobra.Command{
@@ -17,7 +22,7 @@ var GobuildCmd = &cobra.Command{
 }
 
 // Helper function to build for Linux
-func buildLinux() error {
+func BuildLinux() error {
 	fmt.Println("Building for Linux...")
 	goCmd := exec.Command("go", "build", "-o", "orgm", ".")
 	goCmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH=amd64")
@@ -31,8 +36,9 @@ func buildLinux() error {
 }
 
 // Helper function to build for Windows
-func buildWindows() error {
+func BuildWindows() error {
 	fmt.Println("Building for Windows...")
+
 	goCmd := exec.Command("go", "build", "-o", "orgm.exe", ".")
 	goCmd.Env = append(os.Environ(), "GOOS=windows", "GOARCH=amd64", "CGO_ENABLED=1", "CC=x86_64-w64-mingw32-gcc")
 
@@ -110,25 +116,22 @@ func uploadArtifacts() error {
 	return nil
 }
 
-var GobuildLinuxCmd = &cobra.Command{
-	Use:   "l",
-	Short: "Build the application for Linux",
+var GobuildExeCmd = &cobra.Command{
+	Use:   "exe",
+	Short: "Build the application",
 	Run: func(cmd *cobra.Command, args []string) {
-		if err := buildLinux(); err != nil {
+		// Build for Linux
+		if err := BuildLinux(); err != nil {
+			os.Exit(1)
+		}
+
+		// Build for Windows
+		if err := BuildWindows(); err != nil {
 			os.Exit(1)
 		}
 	},
 }
 
-var GobuildWindowsCmd = &cobra.Command{
-	Use:   "w",
-	Short: "Build the application for Windows",
-	Run: func(cmd *cobra.Command, args []string) {
-		if err := buildWindows(); err != nil {
-			os.Exit(1)
-		}
-	},
-}
 
 var GobuildFullCmd = &cobra.Command{
 	Use:   "full",
@@ -137,12 +140,12 @@ var GobuildFullCmd = &cobra.Command{
 		fmt.Println("Starting full build process...")
 
 		// Build for Linux
-		if err := buildLinux(); err != nil {
+		if err := BuildLinux(); err != nil {
 			os.Exit(1)
 		}
 
 		// Build for Windows
-		if err := buildWindows(); err != nil {
+		if err := BuildWindows(); err != nil {
 			os.Exit(1)
 		}
 
@@ -224,6 +227,7 @@ func getLatestTag() (string, error) {
 	return latestTag, nil
 }
 
+
 func deleteAsset(tag, asset string) {
 	ghCmd := exec.Command("gh", "release", "delete-asset", tag, asset)
 	output, err := ghCmd.CombinedOutput()
@@ -232,6 +236,7 @@ func deleteAsset(tag, asset string) {
 	}
 	fmt.Printf("Successfully deleted asset: %s \n %s", asset, output)
 }
+
 
 var GhbuildTagCmd = &cobra.Command{
 	Use:   "tag",
@@ -255,9 +260,145 @@ var GhbuildUploadCmd = &cobra.Command{
 
 func init() {
 	RootCmd.AddCommand(GobuildCmd)
-	GobuildCmd.AddCommand(GobuildLinuxCmd)
-	GobuildCmd.AddCommand(GobuildWindowsCmd)
+	GobuildCmd.AddCommand(GobuildExeCmd)
 	GobuildCmd.AddCommand(GobuildFullCmd)
 	GobuildCmd.AddCommand(GhbuildTagCmd)
 	GobuildCmd.AddCommand(GhbuildUploadCmd)
+	GobuildCmd.AddCommand(InstallCmd)
+	GobuildCmd.AddCommand(UpdateCmd)
+}
+
+
+
+func installFunc() {
+	fmt.Printf("%s\n", inputs.TitleStyle.Render("Installing the application in dev Linux"))
+
+
+	BuildFunc()
+	
+	cmd := exec.Command("cp", "orgm", filepath.Join(os.Getenv("HOME"), "Nextcloud", "Apps", "bin", "orgm"))
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err := cmd.Run()
+	if err != nil {
+		fmt.Printf("Error during go install: %v\n", err)
+		return
+	}
+
+	cmd = exec.Command("cp", "orgm.exe", filepath.Join(os.Getenv("HOME"), "Nextcloud", "Apps", "bin", "orgm.exe"))
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err = cmd.Run()
+	if err != nil {
+		fmt.Printf("Error during go install: %v\n", err)
+		return
+	}
+	fmt.Printf("%s\n", inputs.SuccessStyle.Render("✓ Build and install completed successfully"))
+
+}
+
+
+func BuildFunc() {
+	fmt.Printf("%s\n", inputs.TitleStyle.Render("Building the application"))
+
+	BuildLinux()
+	BuildWindows()
+
+}
+
+func updateFunc() {
+	fmt.Printf("%s\n", inputs.TitleStyle.Render("Updating the application"))
+
+	// Determine the download URL and installation path based on OS
+	var downloadURL, installPath string
+
+	switch runtime.GOOS {
+	case "windows":
+		downloadURL = "https://github.com/osmargm1202/orgm/releases/latest/download/orgm.exe"
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			fmt.Printf("Error getting home directory: %v\n", err)
+			return
+		}
+		installPath = filepath.Join(homeDir, ".config", "orgm", "orgm.exe")
+	case "linux":
+		downloadURL = "https://github.com/osmargm1202/orgm/releases/latest/download/orgm"
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			fmt.Printf("Error getting home directory: %v\n", err)
+			return
+		}
+		installPath = filepath.Join(homeDir, ".local", "bin", "orgm")
+	default:
+		fmt.Printf("Unsupported operating system: %s\n", runtime.GOOS)
+		return
+	}
+
+	// Create the directory if it doesn't exist
+	if err := os.MkdirAll(filepath.Dir(installPath), 0755); err != nil {
+		fmt.Printf("Error creating directory: %v\n", err)
+		return
+	}
+
+	// Download the latest version
+	fmt.Printf("%s\n", inputs.InfoStyle.Render("Downloading latest version..."))
+
+	resp, err := http.Get(downloadURL)
+	if err != nil {
+		fmt.Printf("Error downloading file: %v\n", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		fmt.Printf("Error: HTTP %d when downloading %s\n", resp.StatusCode, downloadURL)
+		return
+	}
+
+	// Create temporary file
+	tempFile := installPath + ".tmp"
+	out, err := os.Create(tempFile)
+	if err != nil {
+		fmt.Printf("Error creating temporary file: %v\n", err)
+		return
+	}
+	defer out.Close()
+
+	// Copy downloaded content to temporary file
+	_, err = io.Copy(out, resp.Body)
+	if err != nil {
+		fmt.Printf("Error writing file: %v\n", err)
+		os.Remove(tempFile)
+		return
+	}
+
+	// Close the file before moving it
+	out.Close()
+
+	// Remove existing file if it exists and replace with new one
+	if _, err := os.Stat(installPath); err == nil {
+		if err := os.Remove(installPath); err != nil {
+			fmt.Printf("Error removing old file: %v\n", err)
+			os.Remove(tempFile)
+			return
+		}
+	}
+
+	// Move temporary file to final location
+	if err := os.Rename(tempFile, installPath); err != nil {
+		fmt.Printf("Error moving file to final location: %v\n", err)
+		os.Remove(tempFile)
+		return
+	}
+
+	// Set executable permissions on Linux
+	if runtime.GOOS == "linux" {
+		if err := os.Chmod(installPath, 0755); err != nil {
+			fmt.Printf("Error setting executable permissions: %v\n", err)
+			return
+		}
+	}
+
+	fmt.Printf("%s\n", inputs.SuccessStyle.Render("✓ Application updated successfully"))
+	fmt.Printf("%s %s\n", inputs.InfoStyle.Render("Updated executable location:"), installPath)
 }
