@@ -1,11 +1,8 @@
 package adm
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
-	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
@@ -245,8 +242,18 @@ type SchemaType struct {
 
 // Load folder schemas from JSON file
 func cargarEsquemas(tipoProyecto string) ([]string, error) {
-	configPath := viper.GetString("config_path")
-	schemaPath := filepath.Join(configPath, "folder", "schema.json")
+	appsPath := viper.GetString("carpetas.apps")
+	if appsPath == "" {
+		return nil, fmt.Errorf("carpeta de apps no configurada (carpetas.apps)")
+	}
+
+	homedir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+
+	appsPath = filepath.Join(homedir, appsPath)
+	schemaPath := filepath.Join(appsPath, "folder", "schema.json")
 
 	data, err := os.ReadFile(schemaPath)
 	if err != nil {
@@ -332,7 +339,6 @@ const (
 	menuInputCliente
 	menuSelectCliente
 	menuSelectCotizacion
-	menuInputUploadPath
 	menuSuccess
 )
 
@@ -351,8 +357,6 @@ func initialFolderModel() folderModel {
 		[]string{
 			"Crear carpeta por ID de cotización",
 			"Buscar cotizaciones por cliente",
-			"Descargar schema.json",
-			"Subir schema.json",
 			"Salir",
 		},
 		"Menú de Carpetas",
@@ -387,21 +391,6 @@ func (m folderModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state = menuInputCliente
 				return m, nil
 			case 2:
-				// Descargar schema.json
-				err := downloadSchema()
-				if err != nil {
-					m.msg = fmt.Sprintf("Error: %s", err)
-				} else {
-					m.msg = inputs.SuccessStyle.Render("Schema descargado exitosamente")
-				}
-				m.state = menuSuccess
-				return m, nil
-			case 3:
-				// Subir schema.json
-				m.textInput = inputs.TextInput("Ingrese la ruta del archivo schema.json:", "/ruta/al/schema.json")
-				m.state = menuInputUploadPath
-				return m, nil
-			case 4:
 				return m, tea.Quit
 			}
 		}
@@ -446,26 +435,6 @@ func (m folderModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.clientes = clientes
 			m.selectMenu = clientesSelectMenu(clientes)
 			m.state = menuSelectCliente
-			return m, nil
-		}
-		return m, cmd
-	case menuInputUploadPath:
-		ti, cmd := m.textInput.Update(msg)
-		m.textInput = ti.(inputs.TextInputModel)
-		if key, ok := msg.(tea.KeyMsg); ok && key.Type == tea.KeyEnter {
-			filePath := m.textInput.TextInput.Value()
-			if filePath == "" {
-				m.msg = "Operación cancelada"
-				m.state = menuSuccess
-				return m, nil
-			}
-			err := uploadSchema(filePath)
-			if err != nil {
-				m.msg = fmt.Sprintf("Error: %s", err)
-			} else {
-				m.msg = inputs.SuccessStyle.Render("Schema subido exitosamente")
-			}
-			m.state = menuSuccess
 			return m, nil
 		}
 		return m, cmd
@@ -543,7 +512,7 @@ func (m folderModel) View() string {
 	switch m.state {
 	case menuMain:
 		return m.mainMenu.View()
-	case menuInputID, menuInputCliente, menuInputUploadPath:
+	case menuInputID, menuInputCliente:
 		return m.textInput.View()
 	case menuSelectCliente, menuSelectCotizacion:
 		return m.selectMenu.View()
@@ -580,184 +549,6 @@ func menu() {
 	p.Run()
 }
 
-// downloadSchema descarga el archivo schema.json desde el servidor
-func downloadSchema() error {
-	baseURL, _ := InitializeApi()
-	if baseURL == "" {
-		return fmt.Errorf("URL base no configurada")
-	}
-
-	// Construir la URL del endpoint con el sufijo assets
-	downloadURL := fmt.Sprintf("%s/assets/configs/adm/schema.json", baseURL)
-
-	// Hacer la petición HTTP
-	resp, err := http.Get(downloadURL)
-	if err != nil {
-		return fmt.Errorf("error al conectar con el servidor: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("error al descargar schema (status %d): archivo no encontrado o no accesible", resp.StatusCode)
-	}
-
-	// Crear la carpeta de destino
-	configPath := viper.GetString("config_path")
-	if configPath == "" {
-		return fmt.Errorf("ruta de configuración no encontrada (config_path)")
-	}
-
-	folderPath := filepath.Join(configPath, "folder")
-	err = os.MkdirAll(folderPath, 0755)
-	if err != nil {
-		return fmt.Errorf("error al crear carpeta de destino: %v", err)
-	}
-
-	// Crear el archivo de destino
-	destPath := filepath.Join(folderPath, "schema.json")
-	destFile, err := os.Create(destPath)
-	if err != nil {
-		return fmt.Errorf("error al crear archivo de destino: %v", err)
-	}
-	defer destFile.Close()
-
-	// Copiar el contenido
-	_, err = io.Copy(destFile, resp.Body)
-	if err != nil {
-		return fmt.Errorf("error al guardar archivo: %v", err)
-	}
-
-	fmt.Println(inputs.InfoStyle.Render(fmt.Sprintf("Schema guardado en: %s", destPath)))
-	return nil
-}
-
-// uploadSchema sube un archivo schema.json al servidor
-func uploadSchema(filePath string) error {
-	baseURL, _ := InitializeApi()
-	if baseURL == "" {
-		return fmt.Errorf("URL base no configurada")
-	}
-
-	// Verificar que el archivo existe
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		return fmt.Errorf("el archivo no existe: %s", filePath)
-	}
-
-	// Abrir el archivo
-	file, err := os.Open(filePath)
-	if err != nil {
-		return fmt.Errorf("error al abrir archivo: %v", err)
-	}
-	defer file.Close()
-
-	// Crear el buffer y multipart writer
-	var requestBody bytes.Buffer
-	writer := multipart.NewWriter(&requestBody)
-
-	// Agregar el archivo al formulario
-	part, err := writer.CreateFormFile("file", "schema.json")
-	if err != nil {
-		return fmt.Errorf("error al crear formulario: %v", err)
-	}
-
-	_, err = io.Copy(part, file)
-	if err != nil {
-		return fmt.Errorf("error al copiar archivo: %v", err)
-	}
-
-	// Cerrar el writer
-	err = writer.Close()
-	if err != nil {
-		return fmt.Errorf("error al cerrar formulario: %v", err)
-	}
-
-	// Construir la URL del endpoint con el sufijo assets
-	uploadURL := fmt.Sprintf("%s/assets/configs/adm", baseURL)
-
-	// Crear la petición HTTP
-	req, err := http.NewRequest("POST", uploadURL, &requestBody)
-	if err != nil {
-		return fmt.Errorf("error al crear petición: %v", err)
-	}
-
-	// Establecer headers
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-
-	// Agregar parámetros de query
-	q := req.URL.Query()
-	q.Add("file_id", "schema.json")
-	q.Add("description", "Schema configuration for folder structure")
-	req.URL.RawQuery = q.Encode()
-
-	// Hacer la petición
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("error al enviar archivo: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("error al subir archivo (status %d): %s", resp.StatusCode, string(body))
-	}
-
-	fmt.Println(inputs.InfoStyle.Render(fmt.Sprintf("Archivo subido desde: %s", filePath)))
-	return nil
-}
-
-// DownloadCmd para descargar el schema.json
-var DownloadCmd = &cobra.Command{
-	Use:   "download",
-	Short: "Download schema.json from server",
-	Long:  `Download the schema.json file from the configuration server and save it locally.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		err := downloadSchema()
-		if err != nil {
-			fmt.Printf("Error: %s\n", err)
-			return
-		}
-		fmt.Println(inputs.SuccessStyle.Render("Schema descargado exitosamente"))
-	},
-}
-
-// UploadCmd para subir el schema.json
-var UploadCmd = &cobra.Command{
-	Use:   "upload",
-	Short: "Upload schema.json to server",
-	Long:  `Upload a schema.json file to the configuration server.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		// Usar textinput para obtener la ruta del archivo
-		p := tea.NewProgram(inputs.TextInput("Ingrese la ruta del archivo schema.json:", "/ruta/al/schema.json"), tea.WithAltScreen())
-		m, err := p.Run()
-		if err != nil {
-			fmt.Printf("Error: %s\n", err)
-			return
-		}
-
-		textInputModel, ok := m.(inputs.TextInputModel)
-		if !ok {
-			fmt.Println("Error: no se pudo obtener la ruta del archivo")
-			return
-		}
-
-		filePath := textInputModel.TextInput.Value()
-		if filePath == "" {
-			fmt.Println("Operación cancelada.")
-			return
-		}
-
-		err = uploadSchema(filePath)
-		if err != nil {
-			fmt.Printf("Error: %s\n", err)
-			return
-		}
-		fmt.Println(inputs.SuccessStyle.Render("Schema subido exitosamente"))
-	},
-}
-
 func init() {
 	AdmCmd.AddCommand(FolderCmd)
-	FolderCmd.AddCommand(DownloadCmd)
-	FolderCmd.AddCommand(UploadCmd)
 }
