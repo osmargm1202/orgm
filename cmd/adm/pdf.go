@@ -118,7 +118,18 @@ func crearEstructuraCarpetas(tipoDocumento string, fecha time.Time) (string, err
 	rutaBaseTemporal := filepath.Join(rutaAdmin, ano, mes)
 
 	// Leer schema.json para obtener las carpetas de administración
-	schemaPath := filepath.Join(configPath, "folder", "schema.json")
+	appsPath := viper.GetString("carpetas.apps")
+	if appsPath == "" {
+		return "", fmt.Errorf("carpeta de apps no configurada (carpetas.apps)")
+	}
+
+	homedir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("error obteniendo directorio home: %w", err)
+	}
+
+	appsPath = filepath.Join(homedir, appsPath)
+	schemaPath := filepath.Join(appsPath, "folder", "schema.json")
 	schemaFile, err := os.ReadFile(schemaPath)
 	if err != nil {
 		return "", fmt.Errorf("error leyendo schema.json desde %s: %w", schemaPath, err)

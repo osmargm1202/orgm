@@ -7,7 +7,6 @@ import (
 )
 
 
-
 // ObtenerProximoIDPresupuesto consulta el ID máximo existente de presupuesto y devuelve el siguiente
 func ObtenerProximoIDPresupuesto() (int, error) {
 	postgrestURL, headers := InitializePostgrest()

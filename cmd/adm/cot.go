@@ -137,7 +137,7 @@ func crearCotizacion() {
 	// Crear la aplicación Fyne
 	a := app.New()
 	w := a.NewWindow("Nueva Cotización")
-	w.Resize(fyne.NewSize(800, 600))
+	w.Resize(fyne.NewSize(1000, 800))
 
 	// Crear bindings para los campos de entrada
 	monedaBinding := binding.NewString()
@@ -148,9 +148,6 @@ func crearCotizacion() {
 	idiomaBinding := binding.NewString()
 	descripcionBinding := binding.NewString()
 	retencionBinding := binding.NewString()
-	descripcionPresupuestoBinding := binding.NewString()
-	precioBinding := binding.NewString()
-	cantidadBinding := binding.NewString()
 
 	// Valores por defecto
 	monedaBinding.Set("RD$")
@@ -162,33 +159,73 @@ func crearCotizacion() {
 	descripcionBinding.Set("")
 	retencionBinding.Set("NINGUNA")
 
+	// Estructura para manejar múltiples items
+	type ItemPresupuesto struct {
+		descripcionBinding binding.String
+		precioBinding      binding.String
+		cantidadBinding    binding.String
+		descripcionWidget  *widget.Entry
+		precioWidget       *widget.Entry
+		cantidadWidget     *widget.Entry
+		eliminarWidget     *widget.Button
+		separadorWidget    *widget.Separator
+	}
+
+	// Array para manejar hasta 10 items
+	var items []*ItemPresupuesto
+	var mainContainer *fyne.Container
+
 	// Bindings para cálculos
 	subtotalBinding := binding.NewFloat()
+	descuentoPBinding := binding.NewString()
+	descuentoMBinding := binding.NewFloat()
 	itbisBinding := binding.NewFloat()
 	retencionMBinding := binding.NewFloat()
 	totalBinding := binding.NewFloat()
 
+	// Establecer valor por defecto del descuento
+	descuentoPBinding.Set("0")
+
 	// Función para calcular totales
 	calcularTotales := func() {
-		precioStr, _ := precioBinding.Get()
-		cantidadStr, _ := cantidadBinding.Get()
+		var subtotalTotal float64 = 0
 		retencionStr, _ := retencionBinding.Get()
+		descuentoPStr, _ := descuentoPBinding.Get()
 
-		precio, err := strconv.ParseFloat(precioStr, 64)
-		if err != nil {
-			precio = 0
+		// Sumar todos los items
+		for _, item := range items {
+			precioStr, _ := item.precioBinding.Get()
+			cantidadStr, _ := item.cantidadBinding.Get()
+
+			precio, err := strconv.ParseFloat(precioStr, 64)
+			if err != nil {
+				precio = 0
+			}
+
+			cantidad, err := strconv.ParseFloat(cantidadStr, 64)
+			if err != nil {
+				cantidad = 0
+			}
+
+			subtotalTotal += precio * cantidad
 		}
 
-		cantidad, err := strconv.ParseFloat(cantidadStr, 64)
-		if err != nil {
-			cantidad = 0
-		}
-
-		subtotal := math.Round((precio*cantidad)*100) / 100
+		subtotal := math.Round(subtotalTotal*100) / 100
 		subtotalBinding.Set(subtotal)
 
+		// Calcular descuento
+		descuentoP, err := strconv.ParseFloat(descuentoPStr, 64)
+		if err != nil {
+			descuentoP = 0
+		}
+		descuentoM := math.Round((subtotal*(descuentoP/100))*100) / 100
+		descuentoMBinding.Set(descuentoM)
+
+		// Subtotal después del descuento
+		subtotalConDescuento := subtotal - descuentoM
+
 		itbisP := 18.0 // ITBIS fijo al 18%
-		itbisM := math.Round((subtotal*(itbisP/100))*100) / 100
+		itbisM := math.Round((subtotalConDescuento*(itbisP/100))*100) / 100
 		itbisBinding.Set(itbisM)
 
 		var retencionP float64
@@ -199,9 +236,87 @@ func crearCotizacion() {
 		retencionM := math.Round((retencionP*itbisM/100)*100) / 100
 		retencionMBinding.Set(retencionM)
 
-		total := math.Round((subtotal+itbisM-retencionM)*100) / 100
+		total := math.Round((subtotalConDescuento+itbisM-retencionM)*100) / 100
 		totalBinding.Set(total)
 	}
+
+	// Función para recrear los items en el contenedor principal (declaración forward)
+	var recrearItems func()
+
+	// Función para crear un nuevo item
+	crearNuevoItem := func(numero int) *ItemPresupuesto {
+		nuevoItem := &ItemPresupuesto{
+			descripcionBinding: binding.NewString(),
+			precioBinding:      binding.NewString(),
+			cantidadBinding:    binding.NewString(),
+		}
+
+		// Widgets para el item
+		descripcionEntry := widget.NewMultiLineEntry()
+		descripcionEntry.Bind(nuevoItem.descripcionBinding)
+		descripcionEntry.SetPlaceHolder("Descripción del item...")
+		descripcionEntry.Resize(fyne.NewSize(400, 60)) // Altura reducida a 60px
+
+		precioEntry := widget.NewEntryWithData(nuevoItem.precioBinding)
+		precioEntry.SetPlaceHolder("0.00")
+		precioEntry.OnChanged = func(s string) {
+			calcularTotales()
+		}
+
+		cantidadEntry := widget.NewEntryWithData(nuevoItem.cantidadBinding)
+		cantidadEntry.SetText("1")
+		cantidadEntry.OnChanged = func(s string) {
+			calcularTotales()
+		}
+
+		// Botón para eliminar item
+		eliminarBtn := widget.NewButton("X", func() {
+			// Encontrar el índice del item a eliminar
+			for i, item := range items {
+				if item == nuevoItem {
+					// Remover del slice
+					items = append(items[:i], items[i+1:]...)
+					break
+				}
+			}
+			// Recrear los items
+			recrearItems()
+			calcularTotales()
+		})
+		eliminarBtn.Importance = widget.DangerImportance
+
+		// Separador para este item
+		separador := widget.NewSeparator()
+
+		// Asignar widgets al item
+		nuevoItem.descripcionWidget = descripcionEntry
+		nuevoItem.precioWidget = precioEntry
+		nuevoItem.cantidadWidget = cantidadEntry
+		nuevoItem.eliminarWidget = eliminarBtn
+		nuevoItem.separadorWidget = separador
+
+		return nuevoItem
+	}
+
+	// Implementación de la función para recrear los items
+	recrearItems = func() {
+		// Implementación será definida después cuando se cree el contenedor principal
+	}
+
+	// Crear el primer item por defecto
+	primerItem := crearNuevoItem(1)
+	items = append(items, primerItem)
+
+	// Botón para agregar más items
+	agregarItemBtn := widget.NewButton("+ Agregar Item", func() {
+		if len(items) < 10 {
+			nuevoItem := crearNuevoItem(len(items) + 1)
+			items = append(items, nuevoItem)
+			recrearItems()
+			calcularTotales()
+		}
+	})
+	agregarItemBtn.Importance = widget.SuccessImportance
 
 	// Sección de información del cliente
 	clienteLabel := widget.NewLabel(fmt.Sprintf("Cliente: %s", cliente.Nombre))
@@ -258,23 +373,15 @@ func crearCotizacion() {
 	})
 	retencionSelect.SetSelected("NINGUNA")
 
-	// Widgets para el presupuesto
-	descripcionPresupuestoEntry := widget.NewMultiLineEntry()
-	descripcionPresupuestoEntry.Bind(descripcionPresupuestoBinding)
-
-	precioEntry := widget.NewEntryWithData(precioBinding)
-	precioEntry.OnChanged = func(s string) {
-		calcularTotales()
-	}
-
-	cantidadEntry := widget.NewEntryWithData(cantidadBinding)
-	cantidadEntry.SetText("1")
-	cantidadEntry.OnChanged = func(s string) {
+	descuentoEntry := widget.NewEntryWithData(descuentoPBinding)
+	descuentoEntry.SetPlaceHolder("0.00")
+	descuentoEntry.OnChanged = func(s string) {
 		calcularTotales()
 	}
 
 	// Widgets para mostrar totales
 	subtotalLabel := widget.NewLabelWithData(binding.FloatToStringWithFormat(subtotalBinding, "Subtotal: %.2f"))
+	descuentoLabel := widget.NewLabelWithData(binding.FloatToStringWithFormat(descuentoMBinding, "Descuento: %.2f"))
 	itbisLabel := widget.NewLabelWithData(binding.FloatToStringWithFormat(itbisBinding, "ITBIS (18%%): %.2f"))
 	retencionLabel := widget.NewLabelWithData(binding.FloatToStringWithFormat(retencionMBinding, "Retención: %.2f"))
 	totalLabel := widget.NewLabelWithData(binding.FloatToStringWithFormat(totalBinding, "Total: %.2f"))
@@ -282,6 +389,27 @@ func crearCotizacion() {
 
 	// Botón de guardar
 	guardarBtn := widget.NewButton("Guardar Cotización", func() {
+		// Validar que haya al menos un item con datos
+		tieneItems := false
+		for _, item := range items {
+			desc, _ := item.descripcionBinding.Get()
+			precio, _ := item.precioBinding.Get()
+			if strings.TrimSpace(desc) != "" && strings.TrimSpace(precio) != "" {
+				tieneItems = true
+				break
+			}
+		}
+
+		if !tieneItems {
+			dialog := widget.NewLabel("Error: Debe agregar al menos un item con descripción y precio")
+			dialog.Alignment = fyne.TextAlignCenter
+			container := container.NewVBox(dialog, widget.NewButton("Cerrar", func() {
+				w.Close()
+			}))
+			w.SetContent(container)
+			return
+		}
+
 		// Obtener valores de los bindings
 		moneda, _ := monedaBinding.Get()
 		tiempoEntrega, _ := tiempoEntregaBinding.Get()
@@ -291,19 +419,16 @@ func crearCotizacion() {
 		idioma, _ := idiomaBinding.Get()
 		descripcion, _ := descripcionBinding.Get()
 		retencion, _ := retencionBinding.Get()
-		descripcionPresupuesto, _ := descripcionPresupuestoBinding.Get()
 
 		validez, _ := strconv.Atoi(validezStr)
+		descuentoPStr, _ := descuentoPBinding.Get()
+		descuentoP, _ := strconv.ParseFloat(descuentoPStr, 64)
 
 		subtotal, _ := subtotalBinding.Get()
+		descuentoM, _ := descuentoMBinding.Get()
 		itbisM, _ := itbisBinding.Get()
 		retencionM, _ := retencionMBinding.Get()
 		total, _ := totalBinding.Get()
-
-		precioStr, _ := precioBinding.Get()
-		cantidadStr, _ := cantidadBinding.Get()
-		precio, _ := strconv.ParseFloat(precioStr, 64)
-		cantidad, _ := strconv.ParseFloat(cantidadStr, 64)
 
 		// Crear cotización
 		cotizacion := Cotizacion{
@@ -322,8 +447,8 @@ func crearCotizacion() {
 			Retencion:     retencion,
 			Subtotal:      subtotal,
 			Indirectos:    0,
-			DescuentoP:    0,
-			DescuentoM:    0,
+			DescuentoP:    descuentoP,
+			DescuentoM:    descuentoM,
 			RetencionP:    retencionM * 100 / itbisM, // Calculamos el porcentaje
 			RetencionM:    retencionM,
 			ItbisP:        18.0,
@@ -343,16 +468,33 @@ func crearCotizacion() {
 			return
 		}
 
-		// Crear estructura del presupuesto
-		childItem := item{
-			ID:          uuid.New().String()[:6],
-			Item:        "P-1",
-			Total:       subtotal,
-			Moneda:      moneda,
-			Precio:      precio,
-			Unidad:      "Ud.",
-			Cantidad:    cantidad,
-			Descripcion: descripcionPresupuesto,
+		// Crear estructura del presupuesto con múltiples items
+		var children []item
+		for i, itemData := range items {
+			desc, _ := itemData.descripcionBinding.Get()
+			precioStr, _ := itemData.precioBinding.Get()
+			cantidadStr, _ := itemData.cantidadBinding.Get()
+
+			// Solo agregar items que tengan descripción y precio
+			if strings.TrimSpace(desc) != "" && strings.TrimSpace(precioStr) != "" {
+				precio, _ := strconv.ParseFloat(precioStr, 64)
+				cantidad, _ := strconv.ParseFloat(cantidadStr, 64)
+				if cantidad <= 0 {
+					cantidad = 1
+				}
+
+				childItem := item{
+					ID:          uuid.New().String()[:6],
+					Item:        fmt.Sprintf("P-%d", i+1),
+					Total:       math.Round((precio*cantidad)*100) / 100,
+					Moneda:      moneda,
+					Precio:      precio,
+					Unidad:      "Ud.",
+					Cantidad:    cantidad,
+					Descripcion: desc,
+				}
+				children = append(children, childItem)
+			}
 		}
 
 		parentItemObj := parentItem{
@@ -363,7 +505,7 @@ func crearCotizacion() {
 			Precio:      "",
 			Unidad:      "Ud.",
 			Cantidad:    1.0,
-			Children:    []item{childItem},
+			Children:    children,
 			Categoria:   "cat1",
 			Descripcion: "SERVICIO",
 		}
@@ -428,6 +570,7 @@ func crearCotizacion() {
 		widget.NewLabel("Validez (días):"), validezEntry,
 		widget.NewLabel("Estado:"), estadoSelect,
 		widget.NewLabel("Idioma:"), idiomaEntry,
+		widget.NewLabel("Descuento (%):"), descuentoEntry,
 		widget.NewLabel("Retención:"), retencionSelect,
 	)
 
@@ -436,35 +579,115 @@ func crearCotizacion() {
 		descripcionEntry,
 	)
 
-	presupuestoContainer := container.NewVBox(
-		widget.NewLabel("Detalles del presupuesto:"),
-		container.NewGridWithColumns(2,
-			widget.NewLabel("Descripción:"), descripcionPresupuestoEntry,
-			widget.NewLabel("Precio:"), precioEntry,
-			widget.NewLabel("Cantidad:"), cantidadEntry,
-		),
+	// Contenedor principal donde se agregarán todos los elementos
+	mainContainer = container.NewVBox(
+		headerContainer,
+		container.NewPadded(formContainer),
+		container.NewPadded(descripcionContainer),
+		widget.NewLabel("Items del presupuesto:"),
+		container.NewHBox(widget.NewSeparator(), agregarItemBtn),
+		widget.NewSeparator(),
 	)
 
+	// Agregar items iniciales al contenedor principal
+	for i, item := range items {
+		mainContainer.Add(widget.NewLabel(fmt.Sprintf("Item %d:", i+1)))
+
+		// Crear contenedor horizontal con proporciones flexibles usando splits
+		descripcionContainer := container.NewBorder(widget.NewLabel("Descripción:"), nil, nil, nil, item.descripcionWidget)
+		precioContainer := container.NewBorder(widget.NewLabel("Precio:"), nil, nil, nil, item.precioWidget)
+		cantidadContainer := container.NewBorder(widget.NewLabel("Cantidad:"), nil, nil, nil, item.cantidadWidget)
+
+		// Usar Split containers para crear proporciones 60%-20%-20%
+		rightSplit := container.NewHSplit(precioContainer, cantidadContainer)
+		rightSplit.SetOffset(0.5) // 50-50 split between precio and cantidad
+
+		mainSplit := container.NewHSplit(descripcionContainer, rightSplit)
+		mainSplit.SetOffset(0.6) // 60% para descripción, 40% para el resto
+
+		itemRow := container.NewBorder(nil, nil, nil, item.eliminarWidget, mainSplit)
+		mainContainer.Add(itemRow)
+
+		if i < len(items)-1 {
+			mainContainer.Add(item.separadorWidget)
+		}
+	}
+
+	// Totales
 	totalesContainer := container.NewVBox(
 		widget.NewSeparator(),
 		subtotalLabel,
+		descuentoLabel,
 		itbisLabel,
 		retencionLabel,
 		totalLabel,
 	)
 
-	// Contenedor principal
-	content := container.NewVBox(
-		headerContainer,
-		container.NewPadded(formContainer),
-		container.NewPadded(descripcionContainer),
-		container.NewPadded(presupuestoContainer),
-		container.NewPadded(totalesContainer),
-		container.NewCenter(guardarBtn),
-	)
+	mainContainer.Add(container.NewPadded(totalesContainer))
+	mainContainer.Add(container.NewCenter(guardarBtn))
 
-	// Poner el contenido en un scroll en caso de que la ventana sea pequeña
-	scrollContainer := container.NewScroll(content)
+	// Implementar la función recrearItems
+	recrearItems = func() {
+		// Remover todos los objetos desde el primer separador después del botón agregar hasta antes de totales
+		newObjects := make([]fyne.CanvasObject, 0)
+
+		// Agregar elementos hasta (e incluyendo) el separador después del botón agregar
+		foundSeparator := false
+		for i, obj := range mainContainer.Objects {
+			newObjects = append(newObjects, obj)
+			if !foundSeparator {
+				if _, ok := obj.(*widget.Separator); ok {
+					// Verificar si el objeto anterior contiene el botón agregar
+					if i > 0 {
+						if hbox, ok := mainContainer.Objects[i-1].(*fyne.Container); ok {
+							// Si es un HBox que probablemente contiene el botón agregar
+							if len(hbox.Objects) > 1 {
+								foundSeparator = true
+								break
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Agregar los items actuales
+		for i, item := range items {
+			newObjects = append(newObjects, widget.NewLabel(fmt.Sprintf("Item %d:", i+1)))
+
+			// Crear contenedor horizontal con proporciones flexibles usando splits
+			descripcionContainer := container.NewBorder(widget.NewLabel("Descripción:"), nil, nil, nil, item.descripcionWidget)
+			precioContainer := container.NewBorder(widget.NewLabel("Precio:"), nil, nil, nil, item.precioWidget)
+			cantidadContainer := container.NewBorder(widget.NewLabel("Cantidad:"), nil, nil, nil, item.cantidadWidget)
+
+			// Usar Split containers para crear proporciones 60%-20%-20%
+			rightSplit := container.NewHSplit(precioContainer, cantidadContainer)
+			rightSplit.SetOffset(0.5) // 50-50 split between precio and cantidad
+
+			mainSplit := container.NewHSplit(descripcionContainer, rightSplit)
+			mainSplit.SetOffset(0.6) // 60% para descripción, 40% para el resto
+
+			itemRow := container.NewBorder(nil, nil, nil, item.eliminarWidget, mainSplit)
+
+			newObjects = append(newObjects, itemRow)
+
+			if i < len(items)-1 {
+				newObjects = append(newObjects, item.separadorWidget)
+			}
+		}
+
+		// Agregar los totales y botón guardar (últimos 2 elementos del contenedor original)
+		if len(mainContainer.Objects) >= 2 {
+			newObjects = append(newObjects, mainContainer.Objects[len(mainContainer.Objects)-2:]...)
+		}
+
+		// Reemplazar todos los objetos
+		mainContainer.Objects = newObjects
+		mainContainer.Refresh()
+	}
+
+	// Poner el contenido en un scroll para toda la aplicación
+	scrollContainer := container.NewScroll(mainContainer)
 	w.SetContent(scrollContainer)
 
 	// Inicializar cálculos
