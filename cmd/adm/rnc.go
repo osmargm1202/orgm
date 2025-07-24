@@ -117,7 +117,7 @@ type Result struct {
 
 // Search in the database for records matching any of the search terms
 func searchInDatabase(searchQuery string) ([]Result, error) {
-	dbPath := filepath.Join(viper.GetString("config_path"), "bd", "dgii.db")
+	dbPath := filepath.Join(viper.GetString("carpetas.apps"), "rnc", "dgii.db")
 
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
@@ -294,14 +294,14 @@ func dgiiDownload() (string, error) {
 		return "", fmt.Errorf("URL not found in config")
 	}
 
-	carpeta := viper.GetString("config_path") + "/bd"
+	carpeta := filepath.Join(viper.GetString("carpetas.apps"), "rnc")
 	if err := os.MkdirAll(carpeta, 0755); err != nil {
-		return "", fmt.Errorf("failed to create bd directory: %v", err)
+		return "", fmt.Errorf("failed to create rnc directory: %v", err)
 	}
 
 	// Tentative name for the extracted file (assuming it's a .txt or .csv, DGII often uses .txt)
 	// We will confirm the actual name after extraction.
-	// For the check, we'll look for any .txt or .csv files in the bd/TMP directory.
+	// For the check, we'll look for any .txt or .csv files in the rnc/TMP directory.
 	tmpDir := filepath.Join(carpeta, "TMP")
 	if err := os.MkdirAll(tmpDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create TMP directory: %v", err)
@@ -432,7 +432,7 @@ func dgiiDownload() (string, error) {
 }
 
 func creacionBd(sourceCsvPath string) error {
-	carpetaBd := filepath.Join(viper.GetString("config_path"), "bd")
+	carpetaBd := filepath.Join(viper.GetString("carpetas.apps"), "rnc")
 	dbPath := filepath.Join(carpetaBd, "dgii.db")
 
 	// Remove existing database file to start fresh

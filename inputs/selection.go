@@ -87,7 +87,39 @@ func (m SelectionModelS) View() string {
 	s := TitleStyle.Render(m.Title) + "\n\n"
 	s += SubtitleStyle.Render(m.Subtitle) + "\n\n"
 
-	for i, choice := range m.Choices {
+	// Paginación: mostrar solo 10 elementos a la vez
+	const itemsPerPage = 10
+	totalItems := len(m.Choices)
+	
+	// Calcular el rango visible centrado alrededor del cursor
+	visibleStart := 0
+	visibleEnd := totalItems
+	
+	if totalItems > itemsPerPage {
+		// Centrar la vista alrededor del cursor
+		if m.Cursor >= itemsPerPage/2 {
+			visibleStart = m.Cursor - itemsPerPage/2
+		}
+		
+		if visibleStart+itemsPerPage < totalItems {
+			visibleEnd = visibleStart + itemsPerPage
+		} else {
+			visibleEnd = totalItems
+			visibleStart = totalItems - itemsPerPage
+			if visibleStart < 0 {
+				visibleStart = 0
+			}
+		}
+	}
+
+	// Indicador si hay elementos arriba
+	if visibleStart > 0 {
+		s += HelpStyle.Render(fmt.Sprintf("... %d more items above ...", visibleStart)) + "\n\n"
+	}
+
+	// Mostrar elementos visibles
+	for i := visibleStart; i < visibleEnd && i < totalItems; i++ {
+		choice := m.Choices[i]
 		cursor := " "
 		if m.Cursor == i {
 			cursor = CursorStyle.Render(">")
@@ -103,7 +135,14 @@ func (m SelectionModelS) View() string {
 		s += fmt.Sprintf("%s %s\n", cursor, itemText)
 	}
 
-	s += "\n" + HelpStyle.Render("Press q to quit, enter to select") + "\n"
+	// Indicador si hay elementos abajo
+	if visibleEnd < totalItems {
+		s += "\n" + HelpStyle.Render(fmt.Sprintf("... %d more items below ...", totalItems-visibleEnd)) + "\n"
+	}
+
+	// Información de navegación
+	s += "\n" + HelpStyle.Render(fmt.Sprintf("Item %d of %d", m.Cursor+1, totalItems)) + "\n"
+	s += HelpStyle.Render("Press ↑/↓ to navigate, enter to select, q to quit") + "\n"
 
 	return s
 }

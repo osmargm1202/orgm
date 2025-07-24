@@ -15,6 +15,111 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Helper function to detect Linux distribution
+func detectDistribution() string {
+	// Try to read /etc/os-release
+	if data, err := os.ReadFile("/etc/os-release"); err == nil {
+		content := string(data)
+		if strings.Contains(strings.ToLower(content), "arch") {
+			return "arch"
+		}
+		if strings.Contains(strings.ToLower(content), "ubuntu") || strings.Contains(strings.ToLower(content), "debian") {
+			return "ubuntu"
+		}
+		if strings.Contains(strings.ToLower(content), "alpine") {
+			return "alpine"
+		}
+	}
+
+	// Fallback: check for specific commands
+	if _, err := exec.LookPath("pacman"); err == nil {
+		return "arch"
+	}
+	if _, err := exec.LookPath("apt"); err == nil {
+		return "ubuntu"
+	}
+	if _, err := exec.LookPath("apk"); err == nil {
+		return "alpine"
+	}
+
+	return "unknown"
+}
+
+// Helper function to check if Docker is installed and provide installation instructions if not
+func checkDockerInstallation() error {
+	// Check if docker command is available
+	if _, err := exec.LookPath("docker"); err != nil {
+		fmt.Printf("%s\n", inputs.ErrorStyle.Render("✘ Docker is not installed"))
+
+		distro := detectDistribution()
+		fmt.Printf("\n%s\n", inputs.TitleStyle.Render("Installation Instructions:"))
+
+		switch distro {
+		case "arch":
+			fmt.Printf("%s\n", inputs.InfoStyle.Render("For Arch Linux:"))
+			fmt.Printf("%s\n", inputs.CommandStyle.Render("sudo pacman -S docker docker-buildx"))
+			fmt.Printf("%s\n", inputs.CommandStyle.Render("sudo systemctl enable --now docker"))
+			fmt.Printf("%s\n", inputs.CommandStyle.Render("sudo usermod -aG docker $USER"))
+			fmt.Printf("%s\n", inputs.WarningStyle.Render("Note: You may need to log out and back in for group changes to take effect"))
+
+		case "ubuntu":
+			fmt.Printf("%s\n", inputs.InfoStyle.Render("For Ubuntu/Debian:"))
+			fmt.Printf("%s\n", inputs.CommandStyle.Render("# Update package index"))
+			fmt.Printf("%s\n", inputs.CommandStyle.Render("sudo apt update"))
+			fmt.Printf("%s\n", inputs.CommandStyle.Render("# Install prerequisites"))
+			fmt.Printf("%s\n", inputs.CommandStyle.Render("sudo apt install -y apt-transport-https ca-certificates curl gnupg lsb-release"))
+			fmt.Printf("%s\n", inputs.CommandStyle.Render("# Add Docker's official GPG key"))
+			fmt.Printf("%s\n", inputs.CommandStyle.Render("curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg"))
+			fmt.Printf("%s\n", inputs.CommandStyle.Render("# Add Docker repository"))
+			fmt.Printf("%s\n", inputs.CommandStyle.Render("echo \"deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable\" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null"))
+			fmt.Printf("%s\n", inputs.CommandStyle.Render("# Install Docker"))
+			fmt.Printf("%s\n", inputs.CommandStyle.Render("sudo apt update && sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin"))
+			fmt.Printf("%s\n", inputs.CommandStyle.Render("# Enable Docker service"))
+			fmt.Printf("%s\n", inputs.CommandStyle.Render("sudo systemctl enable --now docker"))
+			fmt.Printf("%s\n", inputs.CommandStyle.Render("# Add user to docker group"))
+			fmt.Printf("%s\n", inputs.CommandStyle.Render("sudo usermod -aG docker $USER"))
+			fmt.Printf("%s\n", inputs.WarningStyle.Render("Note: You may need to log out and back in for group changes to take effect"))
+
+		case "alpine":
+			fmt.Printf("%s\n", inputs.InfoStyle.Render("For Alpine Linux:"))
+			fmt.Printf("%s\n", inputs.CommandStyle.Render("# Install Docker"))
+			fmt.Printf("%s\n", inputs.CommandStyle.Render("sudo apk add docker docker-cli-buildx"))
+			fmt.Printf("%s\n", inputs.CommandStyle.Render("# Enable Docker service"))
+			fmt.Printf("%s\n", inputs.CommandStyle.Render("sudo rc-update add docker default"))
+			fmt.Printf("%s\n", inputs.CommandStyle.Render("sudo service docker start"))
+			fmt.Printf("%s\n", inputs.CommandStyle.Render("# Add user to docker group"))
+			fmt.Printf("%s\n", inputs.CommandStyle.Render("sudo addgroup $USER docker"))
+			fmt.Printf("%s\n", inputs.WarningStyle.Render("Note: You may need to log out and back in for group changes to take effect"))
+
+		default:
+			fmt.Printf("%s\n", inputs.WarningStyle.Render("Unknown distribution. Please install Docker manually."))
+			fmt.Printf("%s\n", inputs.InfoStyle.Render("Visit: https://docs.docker.com/engine/install/"))
+		}
+
+		fmt.Printf("\n%s\n", inputs.InfoStyle.Render("After installation, verify with: docker --version"))
+		return fmt.Errorf("docker is not installed")
+	}
+
+	// Check if docker daemon is running
+	if err := exec.Command("docker", "info").Run(); err != nil {
+		fmt.Printf("%s\n", inputs.WarningStyle.Render("⚠ Docker is installed but daemon is not running"))
+
+		distro := detectDistribution()
+		switch distro {
+		case "arch", "ubuntu":
+			fmt.Printf("%s\n", inputs.CommandStyle.Render("Start Docker with: sudo systemctl start docker"))
+		case "alpine":
+			fmt.Printf("%s\n", inputs.CommandStyle.Render("Start Docker with: sudo service docker start"))
+		default:
+			fmt.Printf("%s\n", inputs.CommandStyle.Render("Start Docker daemon manually"))
+		}
+
+		return fmt.Errorf("docker daemon is not running")
+	}
+
+	return nil
+}
+
 // Helper function to load environment variables from .env file
 func loadLocalEnv() error {
 	dotenvPath := filepath.Join(".", ".env")
@@ -73,6 +178,10 @@ func DbuildCmd() *cobra.Command {
 		Short: "Build Docker image",
 		Long:  "Build Docker image using cache",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := checkDockerInstallation(); err != nil {
+				return err
+			}
+
 			if err := loadLocalEnv(); err != nil {
 				return err
 			}
@@ -96,6 +205,10 @@ func DbuildNoCacheCmd() *cobra.Command {
 		Short: "Build Docker image without cache",
 		Long:  "Build Docker image without using cache",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := checkDockerInstallation(); err != nil {
+				return err
+			}
+
 			if err := loadLocalEnv(); err != nil {
 				return err
 			}
@@ -119,6 +232,10 @@ func DsaveCmd() *cobra.Command {
 		Short: "Save Docker image to file",
 		Long:  "Save Docker image to a tar file",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := checkDockerInstallation(); err != nil {
+				return err
+			}
+
 			if err := loadLocalEnv(); err != nil {
 				return err
 			}
@@ -154,6 +271,10 @@ func DpushCmd() *cobra.Command {
 		Short: "Push Docker image",
 		Long:  "Push Docker image to registry",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := checkDockerInstallation(); err != nil {
+				return err
+			}
+
 			if err := loadLocalEnv(); err != nil {
 				return err
 			}
@@ -177,6 +298,10 @@ func DtagCmd() *cobra.Command {
 		Short: "Tag Docker image",
 		Long:  "Tag Docker image with latest tag in registry",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := checkDockerInstallation(); err != nil {
+				return err
+			}
+
 			if err := loadLocalEnv(); err != nil {
 				return err
 			}
@@ -200,6 +325,10 @@ func DcreateProdContextCmd() *cobra.Command {
 		Short: "Create prod Docker context",
 		Long:  "Create a Docker context named 'prod'",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := checkDockerInstallation(); err != nil {
+				return err
+			}
+
 			if err := loadLocalEnv(); err != nil {
 				return err
 			}
@@ -222,6 +351,10 @@ func DremoveProdContextCmd() *cobra.Command {
 		Short: "Remove prod Docker context",
 		Long:  "Remove the Docker context named 'prod'",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := checkDockerInstallation(); err != nil {
+				return err
+			}
+
 			if err := loadLocalEnv(); err != nil {
 				return err
 			}
@@ -238,6 +371,10 @@ func DdeployCmd() *cobra.Command {
 		Short: "Deploy application",
 		Long:  "Deploy application to prod context using docker compose",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := checkDockerInstallation(); err != nil {
+				return err
+			}
+
 			if err := loadLocalEnv(); err != nil {
 				return err
 			}
@@ -284,6 +421,10 @@ func DloginCmd() *cobra.Command {
 		Short: "Login to Docker registry",
 		Long:  "Login to Docker registry using credentials",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := checkDockerInstallation(); err != nil {
+				return err
+			}
+
 			if err := requireVars([]string{"DOCKER_URL", "DOCKER_USER"}); err != nil {
 				return err
 			}
@@ -368,6 +509,12 @@ func DmenuCmd() *cobra.Command {
 		Short: "Interactive Docker menu",
 		Long:  "Interactive menu for Docker commands",
 		Run: func(cmd *cobra.Command, args []string) {
+			// Check Docker installation first
+			if err := checkDockerInstallation(); err != nil {
+				fmt.Printf("%s\n", inputs.ErrorStyle.Render("Cannot proceed: "+err.Error()))
+				return
+			}
+
 			// Banner de bienvenida
 			banner := `
 			ORGM DOCKER MENU`
@@ -425,6 +572,12 @@ func DockerCmd() *cobra.Command {
 		Short: "Docker commands",
 		Long:  `Commands for Docker operations like build, tag, push, deploy, etc.`,
 		Run: func(cmd *cobra.Command, args []string) {
+			// Check Docker installation first
+			if err := checkDockerInstallation(); err != nil {
+				fmt.Printf("%s\n", inputs.ErrorStyle.Render("Cannot proceed: "+err.Error()))
+				return
+			}
+
 			// Si se ejecuta sin argumentos, mostrar el menú interactivo
 			DmenuCmd().Run(cmd, args)
 		},

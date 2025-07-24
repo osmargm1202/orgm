@@ -5,10 +5,15 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+	"github.com/studio-b12/gowebdav"
 )
 
 // folderCmd represents the folder command
@@ -55,10 +60,23 @@ var listNextcloudCmd = &cobra.Command{
 	},
 }
 
+var downloadAppsCmd = &cobra.Command{
+	Use:   "download-apps",
+	Short: "Download /Apps folder from Nextcloud",
+	Long:  `Download the /Apps folder from Nextcloud to local directory based on home + carpetas.apps configuration`,
+	Run: func(cmd *cobra.Command, args []string) {
+		err := DownloadAppsFolder()
+		if err != nil {
+			log.Fatal("Error downloading Apps folder:", err)
+		}
+	},
+}
+
 func init() {
 	RootCmd.AddCommand(nextcloudCmd)
 	nextcloudCmd.AddCommand(listNextcloudCmd)
 	nextcloudCmd.AddCommand(createNextcloudCmd)
+	nextcloudCmd.AddCommand(downloadAppsCmd)
 	createNextcloudCmd.AddCommand(createProjectCmd)
 }
 
@@ -140,5 +158,131 @@ func CreateNewProject(name string) error {
 	if err != nil {
 		return err
 	}
+	return nil
+}
+
+// DownloadAppsFolder downloads the /Apps folder from Nextcloud to local directory
+func DownloadAppsFolder() error {
+	// Get home directory
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("error getting home directory: %w", err)
+	}
+
+	// Get apps path from viper configuration
+	appsPath := viper.GetString("carpetas.apps")
+	if appsPath == "" {
+		return fmt.Errorf("carpeta de apps no configurada (carpetas.apps)")
+	}
+
+	// Create local destination path: home + carpetas.apps
+	localAppsPath := filepath.Join(homeDir, appsPath)
+
+	// Check if the directory already exists
+	if _, err := os.Stat(localAppsPath); err == nil {
+		return fmt.Errorf("la carpeta %s ya existe.", localAppsPath)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("error verificando si existe la carpeta %s: %w", localAppsPath, err)
+	}
+
+	// Create local directory since it doesn't exist
+	if err := os.MkdirAll(localAppsPath, 0755); err != nil {
+		return fmt.Errorf("error creating local directory %s: %w", localAppsPath, err)
+	}
+
+	// Initialize Nextcloud client
+	client := InitializeNextcloud()
+	if err := client.Connect(); err != nil {
+		return fmt.Errorf("error connecting to Nextcloud: %w", err)
+	}
+
+	// Download the /Apps folder recursively
+	fmt.Printf("Downloading /Apps folder to: %s\n", localAppsPath)
+	err = downloadFolderRecursive(client, "/Apps", localAppsPath)
+	if err != nil {
+		return fmt.Errorf("error downloading Apps folder: %w", err)
+	}
+
+	fmt.Println("Apps folder downloaded successfully!")
+	return nil
+}
+
+// downloadFolderRecursive downloads a folder and all its contents recursively
+func downloadFolderRecursive(client *gowebdav.Client, remotePath, localPath string) error {
+	// Check if remote path exists and is a directory
+	stat, err := client.Stat(remotePath)
+	if err != nil {
+		return fmt.Errorf("error accessing remote path %s: %w", remotePath, err)
+	}
+
+	if !stat.IsDir() {
+		// If it's a file, download it directly
+		return downloadFile(client, remotePath, localPath)
+	}
+
+	// Create local directory if it doesn't exist
+	if err := os.MkdirAll(localPath, 0755); err != nil {
+		return fmt.Errorf("error creating local directory %s: %w", localPath, err)
+	}
+
+	// Read directory contents
+	files, err := client.ReadDir(remotePath)
+	if err != nil {
+		return fmt.Errorf("error reading directory %s: %w", remotePath, err)
+	}
+
+	// Process each file/folder
+	for _, file := range files {
+		remoteFinalPath := remotePath + "/" + file.Name()
+		localFinalPath := filepath.Join(localPath, file.Name())
+
+		if file.IsDir() {
+			// Recursively download subdirectory
+			fmt.Printf("Downloading directory: %s\n", remoteFinalPath)
+			err := downloadFolderRecursive(client, remoteFinalPath, localFinalPath)
+			if err != nil {
+				return err
+			}
+		} else {
+			// Download file
+			fmt.Printf("Downloading file: %s\n", remoteFinalPath)
+			err := downloadFile(client, remoteFinalPath, localFinalPath)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// downloadFile downloads a single file from Nextcloud
+func downloadFile(client *gowebdav.Client, remotePath, localPath string) error {
+	// Create local directories if they don't exist
+	localDir := filepath.Dir(localPath)
+	if err := os.MkdirAll(localDir, 0755); err != nil {
+		return fmt.Errorf("error creating directory %s: %w", localDir, err)
+	}
+
+	// Read file from Nextcloud
+	reader, err := client.ReadStream(remotePath)
+	if err != nil {
+		return fmt.Errorf("error reading file %s: %w", remotePath, err)
+	}
+	defer reader.Close()
+
+	// Create local file
+	localFile, err := os.Create(localPath)
+	if err != nil {
+		return fmt.Errorf("error creating local file %s: %w", localPath, err)
+	}
+	defer localFile.Close()
+
+	// Copy content from remote to local
+	_, err = io.Copy(localFile, reader)
+	if err != nil {
+		return fmt.Errorf("error copying file content: %w", err)
+	}
+
 	return nil
 }

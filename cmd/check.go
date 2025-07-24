@@ -68,6 +68,7 @@ var ApiEndPoints = []string{
 	"/cot",
 	"/fac",
 	"/firmapdf",
+	"/ai",
 }
 
 func VerifyUrls() {

@@ -2,6 +2,7 @@ package adm
 
 import (
 	"log"
+
 	"github.com/spf13/viper"
 )
 
@@ -42,4 +43,22 @@ func InitializeApi() (string, map[string]string) {
 	headers["CF-Access-Client-Secret"] = viper.GetString("cloudflare.CF_ACCESS_CLIENT_SECRET")
 
 	return apiURL, headers
+}
+
+func InitializeImg() (string, map[string]string) {
+
+	// Get API URL from config
+	imgURL := viper.GetString("url.img")
+	if imgURL == "" {
+		log.Fatal("Error: url.img is not defined in config file")
+		return "", nil
+	}
+
+	// Initialize headers
+	headers := make(map[string]string)
+	headers["accept"] = "image/png"
+	headers["CF-Access-Client-Id"] = viper.GetString("cloudflare.CF_ACCESS_CLIENT_ID")
+	headers["CF-Access-Client-Secret"] = viper.GetString("cloudflare.CF_ACCESS_CLIENT_SECRET")
+
+	return imgURL, headers
 }

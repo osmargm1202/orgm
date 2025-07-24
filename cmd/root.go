@@ -7,13 +7,14 @@ import (
 	"path/filepath"
 
 	"github.com/osmargm1202/orgm/cmd/adm"
+	"github.com/osmargm1202/orgm/cmd/apps"
 	"github.com/osmargm1202/orgm/cmd/misc"
 	"github.com/osmargm1202/orgm/inputs"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
-var version = "v0.133"
+var version = "v0.134"
 
 var UpdateCmd = &cobra.Command{
 	Use:   "update",
@@ -67,6 +68,7 @@ func init() {
 	cobra.OnInitialize(initConfig)
 	RootCmd.AddCommand(versionCmd)
 	RootCmd.AddCommand(adm.AdmCmd)
+	RootCmd.AddCommand(apps.AppsCmd)
 	RootCmd.AddCommand(misc.MiscCmd)
 	RootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 
@@ -109,4 +111,3 @@ func initConfig() {
 		fmt.Println("Using config file:", viper.ConfigFileUsed())
 	}
 }
-
