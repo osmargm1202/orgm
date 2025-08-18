@@ -148,50 +148,83 @@ func startAIConversation(args []string) {
 		}
 	}
 
-	// Step 5: Get user prompt (con historial mejorado)
-	promptText := getUserPromptWithHistory(args, conversation)
-	if promptText == "" {
-		return
+	// Step 5: Start conversation loop
+	continueConversationLoop(args, conversation, model, "ai")
+}
+
+func continueConversationLoop(args []string, conversation *Conversation, model string, aiType string) {
+	// Mostrar historial si existe y no es una nueva conversación
+	if len(conversation.Messages) > 1 { // Más de solo el mensaje del sistema
+		displayConversationHistory(conversation)
 	}
 
-	// Step 6: Make API request ANTES de agregar el mensaje del usuario
-	// Esto evita que se rompa la alternancia si hay un error
-	response := makeAIRequest(promptText, model, conversation.Messages)
-	if response == "" {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error: No se pudo obtener respuesta de la API"))
-		return
+	// Obtener el primer prompt si se proporcionó en args
+	var promptText string
+	if len(args) > 0 {
+		promptText = strings.Join(args, " ")
 	}
 
-	// Solo si la API responde exitosamente, agregamos los mensajes
-	// Step 7: Add user message to conversation
-	userMessage := map[string]interface{}{
-		"role":    "user",
-		"content": promptText,
+	for {
+		// Si no hay prompt inicial o ya se usó, pedir uno nuevo
+		if promptText == "" {
+			fmt.Printf("\n%s\n", inputs.InfoStyle.Render("Escribe tu pregunta (Ctrl+C para terminar):"))
+			p := tea.NewProgram(inputs.TextInput("", "¿En qué puedo ayudarte?"))
+			m, err := p.Run()
+			if err != nil {
+				fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error getting input: "+err.Error()))
+				return
+			}
+
+			if model, ok := m.(inputs.TextInputModel); ok {
+				promptText = model.TextInput.Value()
+				if promptText == "" {
+					fmt.Println(inputs.InfoStyle.Render("Conversación terminada."))
+					return
+				}
+			} else {
+				return
+			}
+		}
+
+		// Hacer consulta a la API
+		fmt.Printf("\n%s %s\n", inputs.CursorStyle.Render("👤"), inputs.ItemStyle.Render(promptText))
+
+		response := makeAIRequest(promptText, model, conversation.Messages)
+		if response == "" {
+			fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error: No se pudo obtener respuesta de la API"))
+			promptText = "" // Reset para pedir nuevo input
+			continue
+		}
+
+		// Agregar mensajes a la conversación
+		userMessage := map[string]interface{}{
+			"role":    "user",
+			"content": promptText,
+		}
+		conversation.Messages = append(conversation.Messages, userMessage)
+
+		assistantMessage := map[string]interface{}{
+			"role":    "assistant",
+			"content": response,
+		}
+		conversation.Messages = append(conversation.Messages, assistantMessage)
+
+		// Guardar conversación
+		saveConversation(conversation, aiType)
+
+		// Mostrar respuesta
+		fmt.Printf("%s\n", inputs.CheckedStyle.Render("🤖 Respuesta:"))
+		markdownResponse := renderMarkdown(response)
+		fmt.Print(markdownResponse)
+		fmt.Println()
+
+		// Reset prompt para el siguiente loop
+		promptText = ""
 	}
-	conversation.Messages = append(conversation.Messages, userMessage)
-
-	// Step 8: Add assistant response to conversation
-	assistantMessage := map[string]interface{}{
-		"role":    "assistant",
-		"content": response,
-	}
-	conversation.Messages = append(conversation.Messages, assistantMessage)
-
-	// Step 9: Save conversation
-	saveConversation(conversation, "ai")
-
-	// Step 10: Display current question and response (renderizado en markdown)
-	fmt.Printf("\n%s\n", inputs.TitleStyle.Render("=== NUEVA INTERACCIÓN ==="))
-	fmt.Printf("%s\n", inputs.CursorStyle.Render("👤 TU PREGUNTA:"))
-	fmt.Printf("%s\n\n", inputs.ItemStyle.Render(promptText))
-
-	fmt.Printf("%s\n", inputs.CheckedStyle.Render("🤖 RESPUESTA DEL ASISTENTE:"))
-	markdownResponse := renderMarkdown(response)
-	fmt.Print(markdownResponse)
 }
 
 func selectConversationType(aiType, title string) string {
-	choices := []string{"Nueva conversación", "Continuar conversación"}
+	choices := []string{"Continuar conversación", "Nueva conversación"}
 	p := tea.NewProgram(inputs.SelectionModel(choices, title, "Selecciona una opción"), tea.WithAltScreen())
 	m, err := p.Run()
 	if err != nil {
@@ -352,9 +385,6 @@ func selectExistingConversation(aiType string) *Conversation {
 			return nil
 		}
 		selectedConv := &conversations[model.Cursor]
-
-		// Mostrar el historial de la conversación seleccionada
-		displayConversationHistory(selectedConv)
 
 		return selectedConv
 	}
@@ -742,13 +772,12 @@ func displayConversationHistory(conversation *Conversation) {
 		return
 	}
 
-	fmt.Printf("%s\n", inputs.TitleStyle.Render("=== HISTORIAL DE CONVERSACIÓN ==="))
-	fmt.Printf("%s: %s\n", inputs.InfoStyle.Render("Conversación"), conversation.Name)
-	fmt.Printf("%s: %s\n", inputs.InfoStyle.Render("Modelo"), conversation.Model)
-	fmt.Printf("%s: %s\n", inputs.InfoStyle.Render("Configuración"), conversation.ConfigUsed)
+	fmt.Printf("%s: %s | %s: %s\n",
+		inputs.InfoStyle.Render("Conversación"), conversation.Name,
+		inputs.InfoStyle.Render("Modelo"), conversation.Model)
 	fmt.Println()
 
-	for i, message := range conversation.Messages {
+	for _, message := range conversation.Messages {
 		role := message["role"].(string)
 		content := message["content"].(string)
 
@@ -759,23 +788,15 @@ func displayConversationHistory(conversation *Conversation) {
 
 		// Mostrar el mensaje con estilo
 		if role == "user" {
-			fmt.Printf("%s\n", inputs.CursorStyle.Render("👤 USUARIO:"))
-			fmt.Printf("%s\n\n", inputs.ItemStyle.Render(content))
+			fmt.Printf("%s %s\n", inputs.CursorStyle.Render("👤"), inputs.ItemStyle.Render(content))
 		} else if role == "assistant" {
-			fmt.Printf("%s\n", inputs.CheckedStyle.Render("🤖 ASISTENTE:"))
+			fmt.Printf("%s\n", inputs.CheckedStyle.Render("🤖 Respuesta:"))
 			// Renderizar la respuesta del asistente en markdown
 			markdownContent := renderMarkdown(content)
 			fmt.Print(markdownContent)
-			fmt.Println()
 		}
-
-		// Separador entre mensajes (excepto el último)
-		if i < len(conversation.Messages)-1 && role != "system" {
-			fmt.Printf("%s\n", inputs.DescriptionStyle.Render(strings.Repeat("─", 50)))
-		}
+		fmt.Println()
 	}
-
-	fmt.Printf("%s\n\n", inputs.TitleStyle.Render("=== FIN DEL HISTORIAL ==="))
 }
 
 // Función para limpiar el historial y asegurar alternancia correcta

@@ -47,10 +47,7 @@ source ~/.bash_profile
 
 ## TO-DO
 
-- Portadas (Docs)
-- Crear AI configs
-- guardar conversacion
+
 - Cartas
 - Calculos
 - buscar cotizaciones
-- Schemas y configs en nube y RNC en Nextcloud

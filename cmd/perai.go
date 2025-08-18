@@ -142,46 +142,79 @@ func startPerAIConversation(args []string) {
 	// Step 5: Select search recency filter
 	recencyFilter := selectRecencyFilter()
 
-	// Step 6: Get user prompt (con historial mejorado)
-	promptText := getUserPromptWithHistory(args, conversation)
-	if promptText == "" {
-		return
+	// Step 6: Start conversation loop
+	continuePerAIConversationLoop(args, conversation, model, recencyFilter, "perai")
+}
+
+func continuePerAIConversationLoop(args []string, conversation *Conversation, model string, recencyFilter *string, aiType string) {
+	// Mostrar historial si existe y no es una nueva conversación
+	if len(conversation.Messages) > 1 { // Más de solo el mensaje del sistema
+		displayConversationHistory(conversation)
 	}
-
-	// Step 7: Make API request ANTES de agregar el mensaje del usuario
-	// Esto evita que se rompa la alternancia si hay un error
-	response := makePerAIRequest(promptText, model, recencyFilter, conversation.Messages)
-	if response == "" {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error: No se pudo obtener respuesta de la API"))
-		return
+	
+	// Obtener el primer prompt si se proporcionó en args
+	var promptText string
+	if len(args) > 0 {
+		promptText = strings.Join(args, " ")
 	}
+	
+	for {
+		// Si no hay prompt inicial o ya se usó, pedir uno nuevo
+		if promptText == "" {
+			fmt.Printf("\n%s\n", inputs.InfoStyle.Render("Escribe tu pregunta (Ctrl+C para terminar):"))
+			p := tea.NewProgram(inputs.TextInput("", "¿En qué puedo ayudarte?"))
+			m, err := p.Run()
+			if err != nil {
+				fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error getting input: "+err.Error()))
+				return
+			}
 
-	// Solo si la API responde exitosamente, agregamos los mensajes
-	// Step 8: Add user message to conversation
-	userMessage := map[string]interface{}{
-		"role":    "user",
-		"content": promptText,
+			if model, ok := m.(inputs.TextInputModel); ok {
+				promptText = model.TextInput.Value()
+				if promptText == "" {
+					fmt.Println(inputs.InfoStyle.Render("Conversación terminada."))
+					return
+				}
+			} else {
+				return
+			}
+		}
+
+		// Hacer consulta a la API
+		fmt.Printf("\n%s %s\n", inputs.CursorStyle.Render("👤"), inputs.ItemStyle.Render(promptText))
+		
+		response := makePerAIRequest(promptText, model, recencyFilter, conversation.Messages)
+		if response == "" {
+			fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error: No se pudo obtener respuesta de la API"))
+			promptText = "" // Reset para pedir nuevo input
+			continue
+		}
+
+		// Agregar mensajes a la conversación
+		userMessage := map[string]interface{}{
+			"role":    "user",
+			"content": promptText,
+		}
+		conversation.Messages = append(conversation.Messages, userMessage)
+
+		assistantMessage := map[string]interface{}{
+			"role":    "assistant",
+			"content": response,
+		}
+		conversation.Messages = append(conversation.Messages, assistantMessage)
+
+		// Guardar conversación
+		saveConversation(conversation, aiType)
+
+		// Mostrar respuesta
+		fmt.Printf("%s\n", inputs.CheckedStyle.Render("🤖 Respuesta (PerplexityAI):"))
+		markdownResponse := renderMarkdown(response)
+		fmt.Print(markdownResponse)
+		fmt.Println()
+
+		// Reset prompt para el siguiente loop
+		promptText = ""
 	}
-	conversation.Messages = append(conversation.Messages, userMessage)
-
-	// Step 9: Add assistant response to conversation
-	assistantMessage := map[string]interface{}{
-		"role":    "assistant",
-		"content": response,
-	}
-	conversation.Messages = append(conversation.Messages, assistantMessage)
-
-	// Step 10: Save conversation
-	saveConversation(conversation, "perai")
-
-	// Step 11: Display current question and response (renderizado en markdown)
-	fmt.Printf("\n%s\n", inputs.TitleStyle.Render("=== NUEVA INTERACCIÓN ==="))
-	fmt.Printf("%s\n", inputs.CursorStyle.Render("👤 TU PREGUNTA:"))
-	fmt.Printf("%s\n\n", inputs.ItemStyle.Render(promptText))
-
-	fmt.Printf("%s\n", inputs.CheckedStyle.Render("🤖 RESPUESTA DEL ASISTENTE (PerplexityAI):"))
-	markdownResponse := renderMarkdown(response)
-	fmt.Print(markdownResponse)
 }
 
 func selectPerAIModel() string {

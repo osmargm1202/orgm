@@ -10,10 +10,143 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/joho/godotenv"
 	"github.com/osmargm1202/orgm/inputs"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
+
+// DockerConfig estructura para la configuración de Docker
+type DockerConfig struct {
+	General struct {
+		DockerURL           string `mapstructure:"DOCKER_URL"`
+		DockerUser          string `mapstructure:"DOCKER_USER"`
+		DockerFolderSave    string `mapstructure:"DOCKER_FOLDER_SAVE"`
+		DockerContainerName string `mapstructure:"DOCKER_CONTAINER_NAME"`
+		DockerNetworkName   string `mapstructure:"DOCKER_NETWORK_NAME"`
+	} `mapstructure:"general"`
+
+	Host map[string]struct {
+		DockerHostUser string `mapstructure:"DOCKER_HOST_USER"`
+		DockerHostIP   string `mapstructure:"DOCKER_HOST_IP"`
+	} `mapstructure:"host"`
+
+	Projects map[string]ProjectConfig `mapstructure:",remain"`
+}
+
+// ProjectConfig estructura para la configuración de cada proyecto
+type ProjectConfig struct {
+	HostPort             string `mapstructure:"HOST_PORT"`
+	AppPort              string `mapstructure:"APP_PORT"`
+	HostName             string `mapstructure:"HOST_NAME"`
+	DockerImageName      string `mapstructure:"DOCKER_IMAGE_NAME"`
+	DockerImageTag       string `mapstructure:"DOCKER_IMAGE_TAG"`
+	DockerSaveFile       string `mapstructure:"DOCKER_SAVE_FILE"`
+	DockerContainerName  string `mapstructure:"DOCKER_CONTAINER_NAME"`
+	DockerVolumeHostPath string `mapstructure:"DOCKER_VOLUME_HOST_PATH"`
+	DockerVolumeName     string `mapstructure:"DOCKER_VOLUME_NAME"`
+}
+
+// loadDockerConfig carga la configuración de Docker desde el archivo TOML
+func loadDockerConfig() (*DockerConfig, error) {
+	// Obtener la ruta de carpetas.apps desde viper
+	appsPath := viper.GetString("carpetas.apps")
+	if appsPath == "" {
+		return nil, fmt.Errorf("carpetas.apps no está configurada en el archivo de configuración")
+	}
+
+	// Construir la ruta al archivo de configuración de Docker
+	dockerConfigPath := filepath.Join(appsPath, "docker", "config.toml")
+
+	// Verificar si el archivo existe
+	if _, err := os.Stat(dockerConfigPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("archivo de configuración Docker no encontrado en: %s", dockerConfigPath)
+	}
+
+	// Crear una nueva instancia de viper para leer el archivo de Docker
+	dockerViper := viper.New()
+	dockerViper.SetConfigFile(dockerConfigPath)
+	dockerViper.SetConfigType("toml")
+
+	if err := dockerViper.ReadInConfig(); err != nil {
+		return nil, fmt.Errorf("error leyendo configuración Docker: %v", err)
+	}
+
+	var config DockerConfig
+	if err := dockerViper.Unmarshal(&config); err != nil {
+		return nil, fmt.Errorf("error deserializando configuración Docker: %v", err)
+	}
+
+	return &config, nil
+}
+
+// getCurrentProjectName obtiene el nombre del proyecto actual basado en el directorio
+func getCurrentProjectName() string {
+	currentDir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return filepath.Base(currentDir)
+}
+
+// getProjectConfig obtiene la configuración del proyecto actual
+func getProjectConfig() (*ProjectConfig, error) {
+	config, err := loadDockerConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	projectName := getCurrentProjectName()
+	projectConfig, exists := config.Projects[projectName]
+	if !exists {
+		return nil, fmt.Errorf("no existe configuración para el proyecto '%s' en el archivo TOML", projectName)
+	}
+
+	// Generar valores automáticos si no están definidos
+	if projectConfig.DockerSaveFile == "" {
+		projectConfig.DockerSaveFile = projectConfig.DockerImageName + ".tar"
+	}
+	if projectConfig.DockerContainerName == "" {
+		projectConfig.DockerContainerName = projectConfig.DockerImageName
+	}
+	if projectConfig.DockerVolumeName == "" {
+		projectConfig.DockerVolumeName = projectConfig.DockerImageName
+	}
+	if projectConfig.DockerVolumeHostPath == "" {
+		// Obtener información del host
+		hostConfig, hostExists := config.Host[projectConfig.HostName]
+		if hostExists {
+			projectConfig.DockerVolumeHostPath = fmt.Sprintf("/home/%s/%s/data", hostConfig.DockerHostUser, projectConfig.DockerImageName)
+		} else {
+			projectConfig.DockerVolumeHostPath = fmt.Sprintf("%s/data", projectConfig.DockerImageName)
+		}
+	}
+
+	return &projectConfig, nil
+}
+
+// getHostConfig obtiene la configuración del host especificado
+func getHostConfig(hostName string) (struct {
+	DockerHostUser string `mapstructure:"DOCKER_HOST_USER"`
+	DockerHostIP   string `mapstructure:"DOCKER_HOST_IP"`
+}, error) {
+	config, err := loadDockerConfig()
+	if err != nil {
+		return struct {
+			DockerHostUser string `mapstructure:"DOCKER_HOST_USER"`
+			DockerHostIP   string `mapstructure:"DOCKER_HOST_IP"`
+		}{}, err
+	}
+
+	hostConfig, exists := config.Host[hostName]
+	if !exists {
+		return struct {
+			DockerHostUser string `mapstructure:"DOCKER_HOST_USER"`
+			DockerHostIP   string `mapstructure:"DOCKER_HOST_IP"`
+		}{}, fmt.Errorf("no existe configuración para el host '%s' en el archivo TOML", hostName)
+	}
+
+	return hostConfig, nil
+}
 
 // Helper function to detect Linux distribution
 func detectDistribution() string {
@@ -120,36 +253,6 @@ func checkDockerInstallation() error {
 	return nil
 }
 
-// Helper function to load environment variables from .env file
-func loadLocalEnv() error {
-	dotenvPath := filepath.Join(".", ".env")
-	if _, err := os.Stat(dotenvPath); os.IsNotExist(err) {
-		return fmt.Errorf("%s", inputs.ErrorStyle.Render(".env file not found in the current directory"))
-	}
-
-	fmt.Printf("%s\n", inputs.InfoStyle.Render("Loading environment from .env file"))
-	return godotenv.Load(dotenvPath)
-}
-
-// Helper function to check if required environment variables are set
-func requireVars(vars []string) error {
-	var missing []string
-
-	for _, v := range vars {
-		if os.Getenv(v) == "" {
-			missing = append(missing, v)
-		}
-	}
-
-	if len(missing) > 0 {
-		return fmt.Errorf("%s: %s",
-			inputs.ErrorStyle.Render("Missing required environment variables"),
-			inputs.WarningStyle.Render(strings.Join(missing, ", ")))
-	}
-
-	return nil
-}
-
 // Helper function to execute docker commands
 func dockerCmd(args []string, inputText string) error {
 	cmd := exec.Command(args[0], args[1:]...)
@@ -182,16 +285,18 @@ func DbuildCmd() *cobra.Command {
 				return err
 			}
 
-			if err := loadLocalEnv(); err != nil {
+			config, err := loadDockerConfig()
+			if err != nil {
 				return err
 			}
 
-			if err := requireVars([]string{"DOCKER_IMAGE_NAME", "DOCKER_IMAGE_TAG", "DOCKER_USER"}); err != nil {
+			projectConfig, err := getProjectConfig()
+			if err != nil {
 				return err
 			}
 
-			tag := os.Getenv("DOCKER_IMAGE_TAG")
-			image := fmt.Sprintf("%s/%s:%s", os.Getenv("DOCKER_USER"), os.Getenv("DOCKER_IMAGE_NAME"), tag)
+			tag := projectConfig.DockerImageTag
+			image := fmt.Sprintf("%s/%s:%s", config.General.DockerUser, projectConfig.DockerImageName, tag)
 
 			fmt.Printf("%s\n", inputs.InfoStyle.Render("Building image: "+image))
 			return dockerCmd([]string{"docker", "build", "-t", image, "."}, "")
@@ -209,16 +314,18 @@ func DbuildNoCacheCmd() *cobra.Command {
 				return err
 			}
 
-			if err := loadLocalEnv(); err != nil {
+			config, err := loadDockerConfig()
+			if err != nil {
 				return err
 			}
 
-			if err := requireVars([]string{"DOCKER_IMAGE_NAME", "DOCKER_IMAGE_TAG", "DOCKER_USER"}); err != nil {
+			projectConfig, err := getProjectConfig()
+			if err != nil {
 				return err
 			}
 
-			tag := os.Getenv("DOCKER_IMAGE_TAG")
-			image := fmt.Sprintf("%s/%s:%s", os.Getenv("DOCKER_USER"), os.Getenv("DOCKER_IMAGE_NAME"), tag)
+			tag := projectConfig.DockerImageTag
+			image := fmt.Sprintf("%s/%s:%s", config.General.DockerUser, projectConfig.DockerImageName, tag)
 
 			fmt.Printf("%s\n", inputs.InfoStyle.Render("Building image without cache: "+image))
 			return dockerCmd([]string{"docker", "build", "--no-cache", "-t", image, "."}, "")
@@ -236,23 +343,19 @@ func DsaveCmd() *cobra.Command {
 				return err
 			}
 
-			if err := loadLocalEnv(); err != nil {
+			config, err := loadDockerConfig()
+			if err != nil {
 				return err
 			}
 
-			if err := requireVars([]string{
-				"DOCKER_IMAGE_NAME",
-				"DOCKER_IMAGE_TAG",
-				"DOCKER_SAVE_FILE",
-				"DOCKER_FOLDER_SAVE",
-				"DOCKER_USER",
-			}); err != nil {
+			projectConfig, err := getProjectConfig()
+			if err != nil {
 				return err
 			}
 
-			tag := os.Getenv("DOCKER_IMAGE_TAG")
-			image := fmt.Sprintf("%s/%s:%s", os.Getenv("DOCKER_USER"), os.Getenv("DOCKER_IMAGE_NAME"), tag)
-			savePath := filepath.Join(os.Getenv("DOCKER_FOLDER_SAVE"), os.Getenv("DOCKER_SAVE_FILE"))
+			tag := projectConfig.DockerImageTag
+			image := fmt.Sprintf("%s/%s:%s", config.General.DockerUser, projectConfig.DockerImageName, tag)
+			savePath := filepath.Join(config.General.DockerFolderSave, projectConfig.DockerSaveFile)
 
 			// Create directory if it doesn't exist
 			if err := os.MkdirAll(filepath.Dir(savePath), 0755); err != nil {
@@ -275,16 +378,18 @@ func DpushCmd() *cobra.Command {
 				return err
 			}
 
-			if err := loadLocalEnv(); err != nil {
+			config, err := loadDockerConfig()
+			if err != nil {
 				return err
 			}
 
-			if err := requireVars([]string{"DOCKER_IMAGE_NAME", "DOCKER_IMAGE_TAG", "DOCKER_USER", "DOCKER_URL"}); err != nil {
+			projectConfig, err := getProjectConfig()
+			if err != nil {
 				return err
 			}
 
-			tag := os.Getenv("DOCKER_IMAGE_TAG")
-			image := fmt.Sprintf("%s/%s/%s:%s", os.Getenv("DOCKER_URL"), os.Getenv("DOCKER_USER"), os.Getenv("DOCKER_IMAGE_NAME"), tag)
+			tag := projectConfig.DockerImageTag
+			image := fmt.Sprintf("%s/%s/%s:%s", config.General.DockerURL, config.General.DockerUser, projectConfig.DockerImageName, tag)
 
 			fmt.Printf("%s\n", inputs.InfoStyle.Render("Pushing image: "+image))
 			return dockerCmd([]string{"docker", "push", image}, "")
@@ -302,65 +407,21 @@ func DtagCmd() *cobra.Command {
 				return err
 			}
 
-			if err := loadLocalEnv(); err != nil {
+			config, err := loadDockerConfig()
+			if err != nil {
 				return err
 			}
 
-			if err := requireVars([]string{"DOCKER_IMAGE_NAME", "DOCKER_IMAGE_TAG", "DOCKER_USER", "DOCKER_URL"}); err != nil {
+			projectConfig, err := getProjectConfig()
+			if err != nil {
 				return err
 			}
 
-			current := fmt.Sprintf("%s/%s:%s", os.Getenv("DOCKER_USER"), os.Getenv("DOCKER_IMAGE_NAME"), os.Getenv("DOCKER_IMAGE_TAG"))
-			target := fmt.Sprintf("%s/%s/%s:latest", os.Getenv("DOCKER_URL"), os.Getenv("DOCKER_USER"), os.Getenv("DOCKER_IMAGE_NAME"))
+			current := fmt.Sprintf("%s/%s:%s", config.General.DockerUser, projectConfig.DockerImageName, projectConfig.DockerImageTag)
+			target := fmt.Sprintf("%s/%s/%s:latest", config.General.DockerURL, config.General.DockerUser, projectConfig.DockerImageName)
 
 			fmt.Printf("%s\n", inputs.InfoStyle.Render("Tagging image: "+current+" → "+target))
 			return dockerCmd([]string{"docker", "tag", current, target}, "")
-		},
-	}
-}
-
-func DcreateProdContextCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "create-prod-context",
-		Short: "Create prod Docker context",
-		Long:  "Create a Docker context named 'prod'",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := checkDockerInstallation(); err != nil {
-				return err
-			}
-
-			if err := loadLocalEnv(); err != nil {
-				return err
-			}
-
-			if err := requireVars([]string{"DOCKER_HOST_USER", "DOCKER_HOST_IP"}); err != nil {
-				return err
-			}
-
-			hostStr := fmt.Sprintf("ssh://%s@%s", os.Getenv("DOCKER_HOST_USER"), os.Getenv("DOCKER_HOST_IP"))
-
-			fmt.Printf("%s\n", inputs.InfoStyle.Render("Creating prod context: "+hostStr))
-			return dockerCmd([]string{"docker", "context", "create", "prod", "--docker", fmt.Sprintf("host=%s", hostStr)}, "")
-		},
-	}
-}
-
-func DremoveProdContextCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "remove-prod-context",
-		Short: "Remove prod Docker context",
-		Long:  "Remove the Docker context named 'prod'",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := checkDockerInstallation(); err != nil {
-				return err
-			}
-
-			if err := loadLocalEnv(); err != nil {
-				return err
-			}
-
-			fmt.Printf("%s\n", inputs.InfoStyle.Render("Removing prod context..."))
-			return dockerCmd([]string{"docker", "context", "rm", "prod"}, "")
 		},
 	}
 }
@@ -375,42 +436,45 @@ func DdeployCmd() *cobra.Command {
 				return err
 			}
 
-			if err := loadLocalEnv(); err != nil {
+			config, err := loadDockerConfig()
+			if err != nil {
 				return err
 			}
 
-			if err := requireVars([]string{"DOCKER_IMAGE_NAME", "DOCKER_USER", "DOCKER_URL"}); err != nil {
+			projectConfig, err := getProjectConfig()
+			if err != nil {
 				return err
 			}
 
-			image := fmt.Sprintf("%s/%s/%s:latest", os.Getenv("DOCKER_URL"), os.Getenv("DOCKER_USER"), os.Getenv("DOCKER_IMAGE_NAME"))
+			image := fmt.Sprintf("%s/%s/%s:latest", config.General.DockerURL, config.General.DockerUser, projectConfig.DockerImageName)
 
 			fmt.Printf("%s\n", inputs.InfoStyle.Render("Deploying to prod context..."))
 
 			// Check if prod context exists
-			checkCmd := exec.Command("docker", "context", "inspect", "prod")
+			checkCmd := exec.Command("docker", "context", "inspect", projectConfig.HostName)
 			if err := checkCmd.Run(); err != nil {
 				fmt.Printf("%s\n", inputs.WarningStyle.Render("Prod context doesn't exist. Creating it..."))
 
-				if err := requireVars([]string{"DOCKER_HOST_USER", "DOCKER_HOST_IP"}); err != nil {
+				hostConfig, err := getHostConfig(projectConfig.HostName)
+				if err != nil {
 					return fmt.Errorf("could not create prod context: %v", err)
 				}
 
-				hostStr := fmt.Sprintf("ssh://%s@%s", os.Getenv("DOCKER_HOST_USER"), os.Getenv("DOCKER_HOST_IP"))
-				if err := dockerCmd([]string{"docker", "context", "create", "prod", "--docker", fmt.Sprintf("host=%s", hostStr)}, ""); err != nil {
+				hostStr := fmt.Sprintf("ssh://%s@%s", hostConfig.DockerHostUser, hostConfig.DockerHostIP)
+				if err := dockerCmd([]string{"docker", "context", "create", projectConfig.HostName, "--docker", fmt.Sprintf("host=%s", hostStr)}, ""); err != nil {
 					return err
 				}
 			}
 
 			// Pull the image
 			fmt.Printf("%s\n", inputs.InfoStyle.Render("Pulling image: "+image))
-			if err := dockerCmd([]string{"docker", "--context", "prod", "pull", image}, ""); err != nil {
+			if err := dockerCmd([]string{"docker", "--context", projectConfig.HostName, "pull", image}, ""); err != nil {
 				return err
 			}
 
 			// Deploy with docker compose
 			fmt.Printf("%s\n", inputs.InfoStyle.Render("Starting containers with docker compose..."))
-			return dockerCmd([]string{"docker", "--context", "prod", "compose", "up", "-d", "--remove-orphans"}, "")
+			return dockerCmd([]string{"docker", "--context", projectConfig.HostName, "compose", "up", "-d", "--remove-orphans"}, "")
 		},
 	}
 }
@@ -425,12 +489,13 @@ func DloginCmd() *cobra.Command {
 				return err
 			}
 
-			if err := requireVars([]string{"DOCKER_URL", "DOCKER_USER"}); err != nil {
+			config, err := loadDockerConfig()
+			if err != nil {
 				return err
 			}
 
-			dockerHubUrl := os.Getenv("DOCKER_URL")
-			dockerHubUser := os.Getenv("DOCKER_USER")
+			dockerHubUrl := config.General.DockerURL
+			dockerHubUser := config.General.DockerUser
 
 			fmt.Printf("%s ", inputs.InfoStyle.Render("Enter Docker Hub password:"))
 			reader := bufio.NewReader(os.Stdin)
@@ -457,8 +522,6 @@ var choices = []inputs.ItemMS{
 	{Title: " Save", Description: "Save Docker image to a tar file", Value: "save", Checked: false},
 	{Title: " Push", Description: "Push Docker image to registry", Value: "push", Checked: false},
 	{Title: " Deploy", Description: "Deploy application to prod", Value: "deploy", Checked: false},
-	{Title: " Create prod context", Description: "Create a Docker context named 'prod'", Value: "create_prod_context", Checked: false},
-	{Title: " Remove prod context", Description: "Remove the Docker context named 'prod'", Value: "remove_prod_context", Checked: false},
 	{Title: " Login", Description: "Login to Docker registry", Value: "login", Checked: false},
 	{Title: " Ayuda", Description: "Show Docker help", Value: "docker -h", Checked: false},
 	{Title: " Salir", Description: "Exit the menu", Value: "exit", Checked: false},
@@ -485,10 +548,6 @@ func runSelectedCommands(selected []inputs.ItemMS) {
 			err = DpushCmd().RunE(nil, nil)
 		case "deploy":
 			err = DdeployCmd().RunE(nil, nil)
-		case "create_prod_context":
-			err = DcreateProdContextCmd().RunE(nil, nil)
-		case "remove_prod_context":
-			err = DremoveProdContextCmd().RunE(nil, nil)
 		case "docker -h":
 			dockerCmd([]string{"orgm", "docker", "-h"}, "")
 		case "exit":
@@ -590,8 +649,6 @@ func DockerCmd() *cobra.Command {
 		DsaveCmd(),
 		DpushCmd(),
 		DtagCmd(),
-		DcreateProdContextCmd(),
-		DremoveProdContextCmd(),
 		DdeployCmd(),
 		DloginCmd(),
 		DmenuCmd(),
@@ -601,6 +658,5 @@ func DockerCmd() *cobra.Command {
 }
 
 func init() {
-
 	RootCmd.AddCommand(DockerCmd())
 }
