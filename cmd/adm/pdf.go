@@ -155,6 +155,8 @@ func crearEstructuraCarpetas(tipoDocumento string, fecha time.Time) (string, err
 		}
 	}
 
+	
+
 	// Determinar la carpeta específica donde guardar el documento
 	var carpetaDestino string
 	if tipoDocumento == "factura" {
