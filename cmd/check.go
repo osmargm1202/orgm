@@ -19,7 +19,6 @@ var checkCmd = &cobra.Command{
 		VerifyUrls()
 		verifyCloudUrl()
 		verifyPostgrestUrl()
-		verifyImgUrl()
 	},
 }
 
@@ -67,7 +66,6 @@ func pingEndpoint(fullUrl string) string {
 var ApiEndPoints = []string{
 	"/cot",
 	"/fac",
-	"/firmapdf",
 	"/ai",
 }
 
@@ -115,18 +113,6 @@ func verifyPostgrestUrl() {
 	}
 }
 
-func verifyImgUrl() {
-	url := "https://img.orgmapp.com/list/images/test"
-	fmt.Println(inputs.InfoStyle.Render(fmt.Sprintf("Ping %s", url)))
-	start := time.Now()
-	res := pingEndpoint(url)
-	elapsed := time.Since(start)
-	if res == "OK" {
-		fmt.Printf("%s (%dms)\n", inputs.SuccessStyle.Render(res), elapsed.Milliseconds())
-	} else {
-		fmt.Printf("%s (%dms)\n", inputs.ErrorStyle.Render(res), elapsed.Milliseconds())
-	}
-}
 
 func init() {
 	RootCmd.AddCommand(checkCmd)

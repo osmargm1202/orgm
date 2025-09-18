@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 
 	"github.com/osmargm1202/orgm/cmd/adm"
-	"github.com/osmargm1202/orgm/cmd/apps"
 	"github.com/osmargm1202/orgm/cmd/misc"
 	"github.com/osmargm1202/orgm/inputs"
 	"github.com/spf13/cobra"
@@ -68,8 +67,12 @@ func init() {
 	cobra.OnInitialize(initConfig)
 	RootCmd.AddCommand(versionCmd)
 	RootCmd.AddCommand(adm.AdmCmd)
-	RootCmd.AddCommand(apps.AppsCmd)
 	RootCmd.AddCommand(misc.MiscCmd)
+	RootCmd.AddCommand(InitCmd)
+	RootCmd.AddCommand(KeysCmd())
+	RootCmd.AddCommand(LinksCmd())
+	RootCmd.AddCommand(ConfigCmd())
+	RootCmd.AddCommand(UpdateCmd)
 	RootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 
 }
@@ -96,7 +99,7 @@ func initConfig() {
 
 	viper.AutomaticEnv() // Read in environment variables that match
 
-	// Attempt to read the configuration file
+	// Attempt to read the main configuration file
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
 			// Config file not found; Viper will rely on env vars or defaults if any.
@@ -108,6 +111,40 @@ func initConfig() {
 		}
 	} else {
 		// Config file found and successfully parsed
-		fmt.Println("Using config file:", viper.ConfigFileUsed())
+		fmt.Println("Loaded config.toml")
+	}
+
+	// Load additional config files (links.toml and keys.toml)
+	loadAdditionalConfigs()
+}
+
+func loadAdditionalConfigs() {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+
+	configDir := filepath.Join(homeDir, ".config", "orgm")
+
+	// Load links.toml
+	linksFile := filepath.Join(configDir, "links.toml")
+	if _, err := os.Stat(linksFile); err == nil {
+		viper.SetConfigFile(linksFile)
+		if err := viper.MergeInConfig(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Error reading links.toml: %v\n", err)
+		} else {
+			fmt.Println("Loaded links.toml")
+		}
+	}
+
+	// Load keys.toml
+	keysFile := filepath.Join(configDir, "keys.toml")
+	if _, err := os.Stat(keysFile); err == nil {
+		viper.SetConfigFile(keysFile)
+		if err := viper.MergeInConfig(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Error reading keys.toml: %v\n", err)
+		} else {
+			fmt.Println("Loaded keys.toml")
+		}
 	}
 }

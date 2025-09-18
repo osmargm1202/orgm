@@ -100,7 +100,6 @@ func savePath(filePath string) error {
 }
 
 func EditConfig(editor string) {
-
 	configPath := viper.GetViper().ConfigFileUsed()
 
 	var cmd *exec.Cmd
@@ -118,10 +117,8 @@ func EditConfig(editor string) {
 		log.Fatal("Error running editor:", err)
 		return
 	}
-
 }
 
 func init() {
-	RootCmd.AddCommand(configCmd)
-
+	// RootCmd.AddCommand(configCmd) // Removed to avoid conflict with ConfigCmd from cloud.go
 }

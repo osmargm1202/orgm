@@ -19,6 +19,31 @@ var GobuildCmd = &cobra.Command{
 	Use:   "build",
 	Short: "Build and release the application",
 	Long:  `Build the application for different platforms and manage GitHub releases.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Println("Starting full build process...")
+
+		// Build for Linux
+		if err := BuildLinux(); err != nil {
+			os.Exit(1)
+		}
+
+		// Build for Windows
+		if err := BuildWindows(); err != nil {
+			os.Exit(1)
+		}
+
+		// Create tag
+		if err := createTag(); err != nil {
+			os.Exit(1)
+		}
+
+		// Upload artifacts
+		if err := uploadArtifacts(); err != nil {
+			os.Exit(1)
+		}
+
+		fmt.Println("Full build process completed successfully!")
+	},
 }
 
 // Helper function to build for Linux
@@ -260,14 +285,7 @@ var GhbuildUploadCmd = &cobra.Command{
 
 func init() {
 	RootCmd.AddCommand(GobuildCmd)
-	GobuildCmd.AddCommand(GobuildExeCmd)
-	GobuildCmd.AddCommand(GobuildFullCmd)
-	GobuildCmd.AddCommand(GhbuildTagCmd)
-	GobuildCmd.AddCommand(GhbuildUploadCmd)
-	GobuildCmd.AddCommand(InstallCmd)
-	GobuildCmd.AddCommand(UpdateCmd)
 }
-
 
 
 func installFunc() {
