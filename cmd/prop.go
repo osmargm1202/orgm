@@ -22,6 +22,7 @@ type Proposal struct {
 	ID        string    `json:"id"`
 	Title     string    `json:"title"`
 	Subtitle  string    `json:"subtitle"`
+    Prompt    string    `json:"prompt"`
 	CreatedAt time.Time `json:"created_at"`
 	MDURL     string    `json:"md_url,omitempty"`
 	HTMLURL   string    `json:"html_url,omitempty"`
@@ -238,36 +239,6 @@ var newCmd = &cobra.Command{
 	},
 }
 
-// genCmd represents the gen command
-var genCmd = &cobra.Command{
-	Use:   "gen",
-	Short: "Crear nueva propuesta",
-	Long:  `Crea una nueva propuesta usando la API`,
-	Run: func(cmd *cobra.Command, args []string) {
-		baseURL, err := getBaseURL()
-		if err != nil {
-			fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error: "+err.Error()))
-			return
-		}
-		createNewProposal(baseURL)
-	},
-}
-
-// getCmd represents the get command
-var getCmd = &cobra.Command{
-	Use:   "get <id>",
-	Short: "Descargar archivos de propuesta",
-	Long:  `Descarga los archivos MD, HTML y PDF de una propuesta`,
-	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		baseURL, err := getBaseURL()
-		if err != nil {
-			fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error: "+err.Error()))
-			return
-		}
-		downloadProposalByID(baseURL, args[0])
-	},
-}
 
 // installCmd represents the install command
 var installCmd = &cobra.Command{
@@ -281,37 +252,6 @@ var installCmd = &cobra.Command{
 
 
 
-// htmlCmd represents the html command
-var htmlCmd = &cobra.Command{
-	Use:   "html <id>",
-	Short: "Generar HTML para propuesta",
-	Long:  `Genera HTML para una propuesta existente y descarga los archivos`,
-	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		baseURL, err := getBaseURL()
-		if err != nil {
-			fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error: "+err.Error()))
-			return
-		}
-		generateHTMLAndDownload(baseURL, args[0])
-	},
-}
-
-// pdfCmd represents the pdf command
-var pdfCmd = &cobra.Command{
-	Use:   "pdf <id>",
-	Short: "Generar PDF para propuesta",
-	Long:  `Genera PDF para una propuesta existente y descarga los archivos`,
-	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		baseURL, err := getBaseURL()
-		if err != nil {
-			fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error: "+err.Error()))
-			return
-		}
-		generatePDFAndDownload(baseURL, args[0])
-	},
-}
 
 func init() {
 	// Add subcommands to prop
@@ -322,265 +262,14 @@ func init() {
 func getBaseURL() (string, error) {
 	baseURL := viper.GetString("url.propuestas_api")
 	if baseURL == "" {
-		return "", fmt.Errorf("No se encontró la URL de la API de propuestas en links.toml")
+		return "", fmt.Errorf("no se encontró la URL de la API de propuestas en links.toml")
 	}
 	return strings.TrimSuffix(baseURL, "/"), nil
 }
 
-func createNewProposal(baseURL string) {
-	fmt.Printf("%s\n", inputs.TitleStyle.Render("Crear Nueva Propuesta"))
-	fmt.Println()
-
-	// Get prompt using textarea
-	prompt := inputs.GetTextArea("Ingresa el prompt para la propuesta:", "Escribe aquí tu prompt...")
-	if prompt == "" {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error: El prompt no puede estar vacío"))
-		return
-	}
-
-	// Get title
-	title := inputs.GetInput("Título de la propuesta:")
-	if title == "" {
-		title = "Propuesta de Servicios"
-	}
-
-	// Get subtitle
-	subtitle := inputs.GetInput("Subtítulo de la propuesta:")
-	if subtitle == "" {
-		subtitle = "Sistema de Gestión"
-	}
-
-	// Create request
-	request := TextGenerationRequest{
-		Title:    title,
-		Subtitle: subtitle,
-		Prompt:   prompt,
-		Model:    "gpt-5-chat-latest", // Default model
-	}
-
-	// Send request
-	fmt.Printf("%s\n", inputs.InfoStyle.Render("Enviando solicitud a la API..."))
-
-	jsonData, err := json.Marshal(request)
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al serializar la solicitud: "+err.Error()))
-		return
-	}
-
-	req, err := http.NewRequest("POST", baseURL+"/generate-text", bytes.NewBuffer(jsonData))
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al crear la solicitud: "+err.Error()))
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al enviar la solicitud: "+err.Error()))
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render(fmt.Sprintf("Error del servidor (%d): %s", resp.StatusCode, string(body))))
-		return
-	}
-
-	var response TextGenerationResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al decodificar la respuesta: "+err.Error()))
-		return
-	}
-
-	fmt.Printf("%s\n", inputs.SuccessStyle.Render("¡Propuesta creada exitosamente!"))
-	fmt.Printf("ID: %s\n", response.ID)
-	fmt.Printf("Creada: %s\n", response.CreatedAt.Format("2006-01-02 15:04:05"))
-	if response.MDURL != "" {
-		fmt.Printf("MD URL: %s\n", response.MDURL)
-	}
-
-	// Automatically download the generated files
-	fmt.Println()
-	downloadProposalByID(baseURL, response.ID)
-}
 
 
-func modifySpecificProposal(baseURL string, proposal Proposal) {
-	fmt.Printf("%s\n", inputs.TitleStyle.Render("Modificar Propuesta: " + proposal.Title))
-	fmt.Printf("ID: %s\n", proposal.ID)
-	fmt.Printf("Creada: %s\n", proposal.CreatedAt.Format("2006-01-02 15:04:05"))
-	fmt.Println()
 
-	// Get new title (use existing as default)
-	title := inputs.GetInputWithDefault("Título (presiona Enter para mantener actual):", proposal.Title)
-	if title == "" {
-		title = proposal.Title
-	}
-
-	// Get new subtitle (use existing as default)
-	subtitle := inputs.GetInputWithDefault("Subtítulo (presiona Enter para mantener actual):", proposal.Subtitle)
-	if subtitle == "" {
-		subtitle = proposal.Subtitle
-	}
-
-	// Get new prompt
-	prompt := inputs.GetTextArea("Ingresa el nuevo prompt:", "Escribe aquí tu prompt...")
-	if prompt == "" {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error: El prompt no puede estar vacío"))
-		return
-	}
-
-	// Create request
-	request := TextGenerationRequest{
-		Title:    title,
-		Subtitle: subtitle,
-		Prompt:   prompt,
-		Model:    "gpt-5-chat-latest", // Default model
-	}
-
-	// Send request
-	fmt.Printf("%s\n", inputs.InfoStyle.Render("Enviando solicitud de modificación..."))
-
-	jsonData, err := json.Marshal(request)
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al serializar la solicitud: "+err.Error()))
-		return
-	}
-
-	req, err := http.NewRequest("PUT", baseURL+"/proposal/"+proposal.ID, bytes.NewBuffer(jsonData))
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al crear la solicitud: "+err.Error()))
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al enviar la solicitud: "+err.Error()))
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render(fmt.Sprintf("Error del servidor (%d): %s", resp.StatusCode, string(body))))
-		return
-	}
-
-	var response ModifyProposalResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al decodificar la respuesta: "+err.Error()))
-		return
-	}
-
-	fmt.Printf("%s\n", inputs.SuccessStyle.Render("¡Propuesta modificada exitosamente!"))
-	fmt.Printf("ID: %s\n", response.ID)
-	fmt.Printf("Modificada: %s\n", response.CreatedAt.Format("2006-01-02 15:04:05"))
-	if response.MDURL != "" {
-		fmt.Printf("MD URL: %s\n", response.MDURL)
-	}
-
-	// Download the modified MD file only
-	fmt.Println()
-	downloadMDOnly(baseURL, response.ID)
-}
-
-func generateHTMLAndDownload(baseURL, proposalID string) {
-	fmt.Printf("%s\n", inputs.TitleStyle.Render("Generar HTML para Propuesta: " + proposalID))
-	fmt.Println()
-
-	// Generate HTML
-	fmt.Printf("%s\n", inputs.InfoStyle.Render("Generando HTML..."))
-
-	htmlRequest := HTMLGenerationRequest{ProposalID: proposalID}
-	jsonData, err := json.Marshal(htmlRequest)
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al serializar solicitud HTML: "+err.Error()))
-		return
-	}
-
-	req, err := http.NewRequest("POST", baseURL+"/generate-html", bytes.NewBuffer(jsonData))
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al crear solicitud HTML: "+err.Error()))
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al generar HTML: "+err.Error()))
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render(fmt.Sprintf("Error del servidor (%d): %s", resp.StatusCode, string(body))))
-		return
-	}
-
-	var htmlResponse HTMLGenerationResponse
-	if err := json.NewDecoder(resp.Body).Decode(&htmlResponse); err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al decodificar respuesta HTML: "+err.Error()))
-		return
-	}
-
-	fmt.Printf("%s\n", inputs.SuccessStyle.Render("✓ HTML generado: " + htmlResponse.HTMLURL))
-
-	// Download the files
-	downloadProposalByID(baseURL, proposalID)
-}
-
-func generatePDFAndDownload(baseURL, proposalID string) {
-	fmt.Printf("%s\n", inputs.TitleStyle.Render("Generar PDF para Propuesta: " + proposalID))
-	fmt.Println()
-
-	// Generate PDF
-	fmt.Printf("%s\n", inputs.InfoStyle.Render("Generando PDF..."))
-
-	pdfRequest := PDFGenerationRequest{ProposalID: proposalID}
-	jsonData, err := json.Marshal(pdfRequest)
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al serializar solicitud PDF: "+err.Error()))
-		return
-	}
-
-	req, err := http.NewRequest("POST", baseURL+"/generate-pdf", bytes.NewBuffer(jsonData))
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al crear solicitud PDF: "+err.Error()))
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al generar PDF: "+err.Error()))
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render(fmt.Sprintf("Error del servidor (%d): %s", resp.StatusCode, string(body))))
-		return
-	}
-
-	var pdfResponse PDFGenerationResponse
-	if err := json.NewDecoder(resp.Body).Decode(&pdfResponse); err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al decodificar respuesta PDF: "+err.Error()))
-		return
-	}
-
-	fmt.Printf("%s\n", inputs.SuccessStyle.Render("✓ PDF generado: " + pdfResponse.PDFURL))
-
-	// Download the files
-	downloadProposalByID(baseURL, proposalID)
-}
 
 
 func downloadSpecificProposal(baseURL string, proposal Proposal) {
@@ -607,22 +296,18 @@ func downloadSpecificProposal(baseURL string, proposal Proposal) {
 		fmt.Printf("%s\n", inputs.SuccessStyle.Render("✓ MD descargado"))
 	}
 
-	// Download HTML file (only if HTML URL exists)
-	if proposal.HTMLURL != "" {
+    // Download HTML file: intentar aunque el API no reporte URL (404 si no existe)
 		if err := downloadProposalFile(baseURL, proposal.ID, "html", filepath.Join(downloadDir, proposal.ID+".html")); err != nil {
-			fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al descargar HTML: "+err.Error()))
+        fmt.Printf("%s\n", inputs.InfoStyle.Render("HTML no disponible aún"))
 		} else {
 			fmt.Printf("%s\n", inputs.SuccessStyle.Render("✓ HTML descargado"))
-		}
 	}
 
-	// Download PDF file (only if PDF URL exists)
-	if proposal.PDFURL != "" {
+    // Download PDF file: intentar aunque el API no reporte URL (404 si no existe)
 		if err := downloadProposalFile(baseURL, proposal.ID, "pdf", filepath.Join(downloadDir, proposal.ID+".pdf")); err != nil {
-			fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al descargar PDF: "+err.Error()))
+        fmt.Printf("%s\n", inputs.InfoStyle.Render("PDF no disponible aún"))
 		} else {
 			fmt.Printf("%s\n", inputs.SuccessStyle.Render("✓ PDF descargado"))
-		}
 	}
 
 	fmt.Printf("%s\n", inputs.SuccessStyle.Render("Descarga completada en: " + downloadDir))
@@ -631,112 +316,6 @@ func downloadSpecificProposal(baseURL string, proposal Proposal) {
 	openDirectory(downloadDir)
 }
 
-func downloadProposalByID(baseURL, proposalID string) {
-	// First get the proposal details
-	resp, err := http.Get(baseURL + "/proposals")
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error de conexión a la API: "+err.Error()))
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render(fmt.Sprintf("Error del servidor (HTTP %d): %s", resp.StatusCode, string(body))))
-		return
-	}
-
-	var proposals []Proposal
-	if err := json.NewDecoder(resp.Body).Decode(&proposals); err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al decodificar respuesta: "+err.Error()))
-		return
-	}
-
-	// Find the proposal by ID
-	var foundProposal *Proposal
-	for _, prop := range proposals {
-		if prop.ID == proposalID {
-			foundProposal = &prop
-			break
-		}
-	}
-
-	if foundProposal == nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Propuesta con ID "+proposalID+" no encontrada"))
-		return
-	}
-
-	downloadSpecificProposal(baseURL, *foundProposal)
-}
-
-func downloadMDOnly(baseURL, proposalID string) {
-	// Get download directory
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al obtener directorio home: "+err.Error()))
-		return
-	}
-	downloadDir := filepath.Join(homeDir, "Downloads")
-
-	// Create download directory if it doesn't exist
-	if err := os.MkdirAll(downloadDir, 0755); err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al crear directorio de descarga: "+err.Error()))
-		return
-	}
-
-	fmt.Printf("%s\n", inputs.InfoStyle.Render("Descargando archivo MD..."))
-
-	// Download only MD file
-	filepath := filepath.Join(downloadDir, proposalID+".md")
-	if err := downloadProposalFile(baseURL, proposalID, "md", filepath); err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al descargar MD: "+err.Error()))
-	} else {
-		fmt.Printf("%s\n", inputs.SuccessStyle.Render("✓ MD descargado"))
-	}
-
-	fmt.Printf("%s\n", inputs.SuccessStyle.Render("Descarga completada en: " + downloadDir))
-
-	// Open download directory
-	openDirectory(downloadDir)
-}
-
-func modifyProposalByID(baseURL, proposalID string) {
-	// First get the proposal details
-	resp, err := http.Get(baseURL + "/proposals")
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error de conexión a la API: "+err.Error()))
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render(fmt.Sprintf("Error del servidor (HTTP %d): %s", resp.StatusCode, string(body))))
-		return
-	}
-
-	var proposals []Proposal
-	if err := json.NewDecoder(resp.Body).Decode(&proposals); err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al decodificar respuesta: "+err.Error()))
-		return
-	}
-
-	// Find the proposal by ID
-	var foundProposal *Proposal
-	for _, prop := range proposals {
-		if prop.ID == proposalID {
-			foundProposal = &prop
-			break
-		}
-	}
-
-	if foundProposal == nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Propuesta con ID "+proposalID+" no encontrada"))
-		return
-	}
-
-	modifySpecificProposal(baseURL, *foundProposal)
-}
 
 func downloadProposalFile(baseURL, proposalID, fileType, filepath string) error {
 	url := fmt.Sprintf("%s/proposal/%s/%s", baseURL, proposalID, fileType)
@@ -787,20 +366,32 @@ func isCommandAvailable(command string) bool {
 	return err == nil
 }
 
+// showNotification shows a dunst notification
+func showNotification(title, message string) {
+	if isCommandAvailable("dunstify") {
+		exec.Command("dunstify", "--appname=Propuestas", title, message).Run()
+	} else if isCommandAvailable("notify-send") {
+		exec.Command("notify-send", "--app-name=Propuestas", title, message).Run()
+	}
+}
+
 func generateHTMLAndPDF(baseURL, proposalID string) {
 	// Generate HTML
 	fmt.Printf("%s\n", inputs.InfoStyle.Render("Generando HTML..."))
+	showNotification("Generando HTML", "Iniciando generación de HTML...")
 	
 	htmlRequest := HTMLGenerationRequest{ProposalID: proposalID}
 	jsonData, err := json.Marshal(htmlRequest)
 	if err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al serializar solicitud HTML: "+err.Error()))
+		showNotification("Error HTML", "Error al serializar solicitud HTML")
 		return
 	}
 
 	req, err := http.NewRequest("POST", baseURL+"/generate-html", bytes.NewBuffer(jsonData))
 	if err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al crear solicitud HTML: "+err.Error()))
+		showNotification("Error HTML", "Error al crear solicitud HTML")
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -809,6 +400,7 @@ func generateHTMLAndPDF(baseURL, proposalID string) {
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al generar HTML: "+err.Error()))
+		showNotification("Error HTML", "Error al generar HTML")
 		return
 	}
 	defer resp.Body.Close()
@@ -817,22 +409,26 @@ func generateHTMLAndPDF(baseURL, proposalID string) {
 		var htmlResponse HTMLGenerationResponse
 		if err := json.NewDecoder(resp.Body).Decode(&htmlResponse); err == nil {
 			fmt.Printf("%s\n", inputs.SuccessStyle.Render("✓ HTML generado: " + htmlResponse.HTMLURL))
+			showNotification("HTML Listo", "HTML generado exitosamente")
 		}
 	}
 
 	// Generate PDF
 	fmt.Printf("%s\n", inputs.InfoStyle.Render("Generando PDF..."))
+	showNotification("Generando PDF", "Iniciando generación de PDF...")
 	
 	pdfRequest := PDFGenerationRequest{ProposalID: proposalID}
 	jsonData, err = json.Marshal(pdfRequest)
 	if err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al serializar solicitud PDF: "+err.Error()))
+		showNotification("Error PDF", "Error al serializar solicitud PDF")
 		return
 	}
 
 	req, err = http.NewRequest("POST", baseURL+"/generate-pdf", bytes.NewBuffer(jsonData))
 	if err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al crear solicitud PDF: "+err.Error()))
+		showNotification("Error PDF", "Error al crear solicitud PDF")
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -840,6 +436,7 @@ func generateHTMLAndPDF(baseURL, proposalID string) {
 	resp, err = client.Do(req)
 	if err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al generar PDF: "+err.Error()))
+		showNotification("Error PDF", "Error al generar PDF")
 		return
 	}
 	defer resp.Body.Close()
@@ -848,6 +445,7 @@ func generateHTMLAndPDF(baseURL, proposalID string) {
 		var pdfResponse PDFGenerationResponse
 		if err := json.NewDecoder(resp.Body).Decode(&pdfResponse); err == nil {
 			fmt.Printf("%s\n", inputs.SuccessStyle.Render("✓ PDF generado: " + pdfResponse.PDFURL))
+			showNotification("PDF Listo", "PDF generado exitosamente")
 		}
 	}
 }
@@ -855,18 +453,18 @@ func generateHTMLAndPDF(baseURL, proposalID string) {
 func getProposals(baseURL string) ([]Proposal, error) {
 	resp, err := http.Get(baseURL + "/proposals")
 	if err != nil {
-		return nil, fmt.Errorf("Error de conexión a la API: %v", err)
+		return nil, fmt.Errorf("error de conexión a la API: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Error del servidor (HTTP %d): %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("error del servidor (HTTP %d): %s", resp.StatusCode, string(body))
 	}
 
 	var proposals []Proposal
 	if err := json.NewDecoder(resp.Body).Decode(&proposals); err != nil {
-		return nil, fmt.Errorf("Error al decodificar respuesta: %v", err)
+		return nil, fmt.Errorf("error al decodificar respuesta: %v", err)
 	}
 
 	return proposals, nil
@@ -876,14 +474,21 @@ func getProposals(baseURL string) ([]Proposal, error) {
 // showMainProposalMenu shows the main unified proposal menu
 func showMainProposalMenu(baseURL string) {
 	for {
-		// Show main menu with only two options
+		// Show main menu as a list like the action menu
 		cmd := exec.Command("yad",
-			"--form",
+			"--list",
 			"--title=📋 Gestor de Propuestas",
 			"--text=Selecciona una opción:",
-			"--field=Opción:CB", "🆕 Nueva Propuesta!📁 Propuesta Existente",
+			"--column=Opción",
 			"--width=400",
-			"--height=200")
+			"--height=200",
+			"--print-column=1",
+			"--single-click",
+			"--separator=|")
+
+		// Add menu items
+		cmd.Args = append(cmd.Args, "🆕 Nueva Propuesta")
+		cmd.Args = append(cmd.Args, "📁 Propuesta Existente")
 
 		output, err := cmd.Output()
 		if err != nil {
@@ -892,18 +497,13 @@ func showMainProposalMenu(baseURL string) {
 		}
 
 		result := strings.TrimSpace(string(output))
+		result = strings.TrimSuffix(result, "|")
 		if result == "" {
 			return
 		}
 
-		// Parse action selection
-		action := strings.TrimSpace(strings.Split(result, "|")[0])
-		if action == "" {
-			return
-		}
-
 		// Handle selected action
-		switch action {
+		switch result {
 		case "🆕 Nueva Propuesta":
 			createNewProposalFlow(baseURL)
 		case "📁 Propuesta Existente":
@@ -992,30 +592,33 @@ func showGenerationMenu(baseURL string, request TextGenerationRequest) {
 		}
 
 		switch action {
-		case "📝 Solo Texto (MD)":
-			// Create proposal and show content
-			proposal, err := createProposalFromRequest(baseURL, request)
-			if err != nil {
-				fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error creando propuesta: "+err.Error()))
-				continue
-			}
-			showProposalContent(baseURL, proposal)
-		case "🌐 Generar HTML":
-			// Create proposal and generate HTML
-			proposal, err := createProposalFromRequest(baseURL, request)
-			if err != nil {
-				fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error creando propuesta: "+err.Error()))
-				continue
-			}
-			generateHTMLGUI(baseURL, proposal.ID)
-		case "📄 Generar PDF":
-			// Create proposal and generate PDF
-			proposal, err := createProposalFromRequest(baseURL, request)
-			if err != nil {
-				fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error creando propuesta: "+err.Error()))
-				continue
-			}
-			generatePDFGUI(baseURL, proposal.ID)
+        case "📝 Solo Texto (MD)":
+            // Create proposal and download MD, open folder
+            proposal, err := createProposalFromRequest(baseURL, request)
+            if err != nil {
+                fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error creando propuesta: "+err.Error()))
+                continue
+            }
+            mdPath := getDownloadPath(proposal.ID + ".md")
+            _ = downloadProposalFile(baseURL, proposal.ID, "md", mdPath)
+            homeDir, _ := os.UserHomeDir()
+            openDirectory(filepath.Join(homeDir, "Downloads"))
+        case "🌐 Generar HTML":
+            // Create proposal and generate HTML, then PDF too per request
+            proposal, err := createProposalFromRequest(baseURL, request)
+            if err != nil {
+                fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error creando propuesta: "+err.Error()))
+                continue
+            }
+            generateHTMLAndPDF(baseURL, proposal.ID)
+        case "📄 Generar PDF":
+            // Create proposal and generate HTML+PDF immediately
+            proposal, err := createProposalFromRequest(baseURL, request)
+            if err != nil {
+                fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error creando propuesta: "+err.Error()))
+                continue
+            }
+            generateHTMLAndPDF(baseURL, proposal.ID)
 		case "🏠 Volver al Menú Principal":
 			return
 		}
@@ -1034,11 +637,11 @@ func createProposalFromRequest(baseURL string, request TextGenerationRequest) (P
 	resp, err := http.Post(baseURL+"/generate-text", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return Proposal{}, fmt.Errorf("error calling API: %v", err)
-	}
-	defer resp.Body.Close()
+		}
+		defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != 200 {
+			body, _ := io.ReadAll(resp.Body)
 		return Proposal{}, fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(body))
 	}
 
@@ -1063,95 +666,96 @@ func createProposalFromRequest(baseURL string, request TextGenerationRequest) (P
 	return proposal, nil
 }
 
+
 // showExistingProposalFlow handles the complete flow for existing proposals
 func showExistingProposalFlow(baseURL string) {
-	// Get proposals from API
-	proposals, err := getProposals(baseURL)
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error obteniendo propuestas: "+err.Error()))
-		return
-	}
-
-	if len(proposals) == 0 {
-		fmt.Printf("%s\n", inputs.InfoStyle.Render("No hay propuestas disponibles"))
-		return
-	}
-
-	// Create yad list dialog
-	cmd := exec.Command("yad", 
-		"--list",
-		"--title=📁 Propuestas Existentes",
-		"--text=Selecciona una propuesta:",
-		"--column=ID",
-		"--column=Título",
-		"--column=Subtítulo", 
-		"--column=Creada",
-		"--width=800",
-		"--height=400",
-		"--search-column=2", // Search in title column
-		"--print-column=1",   // Return only ID
-		"--single-click",
-		"--separator=|")
-
-	// Add proposal items as arguments
-	for _, prop := range proposals {
-		// Add each field as separate argument
-		cmd.Args = append(cmd.Args, prop.ID)
-		cmd.Args = append(cmd.Args, prop.Title)
-		cmd.Args = append(cmd.Args, prop.Subtitle)
-		cmd.Args = append(cmd.Args, prop.CreatedAt.Format("2006-01-02 15:04"))
-	}
-
-	output, err := cmd.Output()
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error ejecutando yad: "+err.Error()))
-		return
-	}
-
-	selectedID := strings.TrimSpace(string(output))
-	// Remove separator if present (yad sometimes includes it)
-	selectedID = strings.TrimSuffix(selectedID, "|")
-	
-	if selectedID == "" {
-		fmt.Printf("%s\n", inputs.InfoStyle.Render("No se seleccionó ninguna propuesta"))
-		return
-	}
-
-	// Find selected proposal
-	var selectedProposal *Proposal
-	for _, prop := range proposals {
-		if prop.ID == selectedID {
-			selectedProposal = &prop
-			break
+    // Get proposals from API
+    proposals, err := getProposals(baseURL)
+    if err != nil {
+        fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error obteniendo propuestas: "+err.Error()))
+			return
 		}
-	}
 
-	if selectedProposal == nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Propuesta no encontrada"))
-		return
-	}
+    if len(proposals) == 0 {
+        fmt.Printf("%s\n", inputs.InfoStyle.Render("No hay propuestas disponibles"))
+        return
+    }
 
-	// Show proposal management menu (stays in loop until user exits)
-	showProposalManagementLoop(baseURL, *selectedProposal)
+    // Show list with all proposals directly
+    cmd := exec.Command("yad", 
+        "--list",
+        "--title=📁 Propuestas Existentes",
+        "--text=Selecciona una propuesta:",
+        "--column=ID",
+        "--column=Título",
+        "--column=Subtítulo", 
+        "--column=Creada",
+        "--width=900",
+        "--height=480",
+        "--search-column=2", // quick search on title
+        "--print-column=1",   // Return only ID
+        "--single-click",
+        "--separator=|")
+
+    // Add proposal items as arguments
+    for _, prop := range proposals {
+        cmd.Args = append(cmd.Args, prop.ID)
+        cmd.Args = append(cmd.Args, prop.Title)
+        cmd.Args = append(cmd.Args, prop.Subtitle)
+        cmd.Args = append(cmd.Args, prop.CreatedAt.Format("2006-01-02 15:04"))
+    }
+
+    output, err := cmd.Output()
+    if err != nil {
+        fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error ejecutando yad: "+err.Error()))
+        return
+    }
+
+    selectedID := strings.TrimSpace(string(output))
+    selectedID = strings.TrimSuffix(selectedID, "|")
+    if selectedID == "" {
+        return
+    }
+
+    // Find selected proposal
+    var selectedProposal *Proposal
+    for _, prop := range proposals {
+        if prop.ID == selectedID {
+            selectedProposal = &prop
+            break
+        }
+    }
+
+    if selectedProposal == nil {
+        fmt.Printf("%s\n", inputs.ErrorStyle.Render("Propuesta no encontrada"))
+        return
+    }
+
+    // Show proposal management menu (stays in loop until user exits)
+    showProposalManagementLoop(baseURL, *selectedProposal)
 }
 
 // showProposalManagementLoop shows the management menu for a specific proposal in a loop
 func showProposalManagementLoop(baseURL string, proposal Proposal) {
 	for {
 		// Create menu options based on available documents
-		menuItems := []string{
-			"📝 Ver propuesta (MD)",
-		}
+        menuItems := []string{
+            "📝 Ver propuesta (MD)",
+            "🛠️ Regenerar (título/subtítulo/prompt)",
+            "✍️ Cambiar solo título/subtítulo",
+        }
 		
 		// Add conditional buttons based on document availability
-		if proposal.HTMLURL != "" {
-			menuItems = append(menuItems, "🌐 Ver HTML")
+        if proposal.HTMLURL != "" {
+            menuItems = append(menuItems, "🌐 Ver HTML")
+            menuItems = append(menuItems, "🔁 Regenerar HTML")
 		} else {
 			menuItems = append(menuItems, "🌐 Generar HTML")
 		}
 		
-		if proposal.PDFURL != "" {
-			menuItems = append(menuItems, "📄 Ver PDF")
+        if proposal.PDFURL != "" {
+            menuItems = append(menuItems, "📄 Ver PDF")
+            menuItems = append(menuItems, "🔁 Regenerar PDF")
 		} else {
 			menuItems = append(menuItems, "📄 Generar PDF")
 		}
@@ -1173,9 +777,7 @@ func showProposalManagementLoop(baseURL string, proposal Proposal) {
 			"--separator=|")
 
 		// Add menu items
-		for _, item := range menuItems {
-			cmd.Args = append(cmd.Args, item)
-		}
+		cmd.Args = append(cmd.Args, menuItems...)
 
 		output, err := cmd.Output()
 		if err != nil {
@@ -1183,33 +785,56 @@ func showProposalManagementLoop(baseURL string, proposal Proposal) {
 			return
 		}
 
-		selectedAction := strings.TrimSpace(string(output))
+        selectedAction := strings.TrimSpace(string(output))
+        // Remove trailing separator if present
+        selectedAction = strings.TrimSuffix(selectedAction, "|")
 		if selectedAction == "" {
 			return
 		}
 
 		// Handle selected action
 		switch selectedAction {
-		case "📝 Ver propuesta (MD)":
-			showProposalContent(baseURL, proposal)
-		case "🌐 Ver HTML":
-			// Open HTML file in browser
-			if proposal.HTMLURL != "" {
-				downloadPath := getDownloadPath(proposal.ID + ".html")
-				if err := downloadProposalFile(baseURL, proposal.ID, "html", downloadPath); err == nil {
-					openFile(downloadPath)
-				}
-			}
+        case "📝 Ver propuesta (MD)":
+            // Descargar MD y abrir carpeta de descargas
+            mdPath := getDownloadPath(proposal.ID + ".md")
+            if err := downloadProposalFile(baseURL, proposal.ID, "md", mdPath); err != nil {
+                exec.Command("yad", "--error", "--title=Descarga MD", "--text=MD no disponible aún").Run()
+            } else {
+                exec.Command("yad", "--info", "--title=Descarga MD", "--text=MD descargado en carpeta de Descargas").Run()
+            }
+            // abrir carpeta
+            homeDir, _ := os.UserHomeDir()
+            openDirectory(filepath.Join(homeDir, "Downloads"))
+        case "🌐 Ver HTML":
+            // Descargar HTML y abrir carpeta
+            downloadPath := getDownloadPath(proposal.ID + ".html")
+            if err := downloadProposalFile(baseURL, proposal.ID, "html", downloadPath); err != nil {
+                exec.Command("yad", "--error", "--title=Descarga HTML", "--text=HTML no disponible aún").Run()
+            } else {
+                exec.Command("yad", "--info", "--title=Descarga HTML", "--text=HTML descargado en carpeta de Descargas").Run()
+            }
+            homeDir, _ := os.UserHomeDir()
+            openDirectory(filepath.Join(homeDir, "Downloads"))
 		case "🌐 Generar HTML":
 			generateHTMLGUI(baseURL, proposal.ID)
-		case "📄 Ver PDF":
-			// Open PDF file
-			if proposal.PDFURL != "" {
-				downloadPath := getDownloadPath(proposal.ID + ".pdf")
-				if err := downloadProposalFile(baseURL, proposal.ID, "pdf", downloadPath); err == nil {
-					openFile(downloadPath)
-				}
-			}
+		case "🔁 Regenerar HTML":
+			// Fuerza nueva generación de HTML según API: POST /generate-html con proposal_id y model por defecto
+			generateHTMLGUI(baseURL, proposal.ID)
+			// Después de regenerar HTML, regenerar PDF automáticamente
+			generatePDFGUI(baseURL, proposal.ID)
+		case "🔁 Regenerar PDF":
+			// Volver a generar PDF (llama a generatePDFGUI que invoca POST /generate-pdf)
+			generatePDFGUI(baseURL, proposal.ID)
+        case "📄 Ver PDF":
+            // Descargar PDF y abrir carpeta
+            downloadPath := getDownloadPath(proposal.ID + ".pdf")
+            if err := downloadProposalFile(baseURL, proposal.ID, "pdf", downloadPath); err != nil {
+                exec.Command("yad", "--error", "--title=Descarga PDF", "--text=PDF no disponible aún").Run()
+            } else {
+                exec.Command("yad", "--info", "--title=Descarga PDF", "--text=PDF descargado en carpeta de Descargas").Run()
+            }
+            homeDir, _ := os.UserHomeDir()
+            openDirectory(filepath.Join(homeDir, "Downloads"))
 		case "📄 Generar PDF":
 			generatePDFGUI(baseURL, proposal.ID)
 		case "✏️ Modificar propuesta":
@@ -1218,365 +843,94 @@ func showProposalManagementLoop(baseURL string, proposal Proposal) {
 			downloadSpecificProposal(baseURL, proposal)
 		case "🏠 Volver al Menú Principal":
 			return
+        case "🛠️ Regenerar (título/subtítulo/prompt)":
+            regenerateProposalGUI(baseURL, &proposal)
+        case "✍️ Cambiar solo título/subtítulo":
+            updateTitleSubtitleGUI(baseURL, &proposal)
 		}
 	}
 }
 
-// showHTMLGenerator shows a list of proposals to generate HTML for
-func showHTMLGenerator(baseURL string) {
-	// Get proposals from API
-	proposals, err := getProposals(baseURL)
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error obteniendo propuestas: "+err.Error()))
-		return
-	}
+// regenerateProposalGUI: POST /proposal/{id}/regenerate with title/subtitle/prompt
+func regenerateProposalGUI(baseURL string, proposal *Proposal) {
+    // Form with current values
+    cmd := exec.Command("yad",
+        "--form",
+        "--title=🛠️ Regenerar Propuesta: "+proposal.Title,
+        "--text=Edita los campos para regenerar el contenido (MD se reemplaza)",
+        `--field=Título:TXT`, proposal.Title,
+        `--field=Subtítulo:TXT`, proposal.Subtitle,
+        `--field=Prompt:TXT`, proposal.Prompt,
+        "--width=700",
+        "--height=420")
 
-	if len(proposals) == 0 {
-		fmt.Printf("%s\n", inputs.InfoStyle.Render("No hay propuestas disponibles"))
-		return
-	}
+    output, err := cmd.Output()
+    if err != nil {
+        fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error ejecutando yad: "+err.Error()))
+        return
+    }
+    res := strings.TrimSpace(string(output))
+    if res == "" { return }
+    parts := strings.Split(res, "|")
+    if len(parts) < 3 { exec.Command("yad","--error","--text=Entrada inválida").Run(); return }
+    title := strings.TrimSpace(parts[0])
+    subtitle := strings.TrimSpace(parts[1])
+    prompt := strings.TrimSpace(parts[2])
 
-	// Create yad list dialog
-	cmd := exec.Command("yad", 
-		"--list",
-		"--title=Generar HTML",
-		"--text=Selecciona una propuesta para generar HTML:",
-		"--column=ID",
-		"--column=Título",
-		"--column=Subtítulo", 
-		"--column=Creada",
-		"--width=800",
-		"--height=400",
-		"--search-column=2", // Search in title column
-		"--print-column=1",   // Return only ID
-		"--single-click",
-		"--separator=|")
+    body := map[string]string{ "title": title, "subtitle": subtitle, "prompt": prompt, "model": "gpt-5-chat-latest" }
+    b, _ := json.Marshal(body)
+    req, err := http.NewRequest("POST", fmt.Sprintf("%s/proposal/%s/regenerate", baseURL, proposal.ID), bytes.NewBuffer(b))
+    if err != nil { exec.Command("yad","--error","--text=No se pudo crear la solicitud").Run(); return }
+    req.Header.Set("Content-Type", "application/json")
+    resp, err := (&http.Client{}).Do(req)
+    if err != nil { exec.Command("yad","--error","--text=Error de red").Run(); return }
+    defer resp.Body.Close()
+    if resp.StatusCode != 200 { bodyBytes,_:=io.ReadAll(resp.Body); exec.Command("yad","--error","--text=Fallo al regenerar: "+string(bodyBytes)).Run(); return }
 
-	// Add proposal items as arguments
-	for _, prop := range proposals {
-		// Add each field as separate argument
-		cmd.Args = append(cmd.Args, prop.ID)
-		cmd.Args = append(cmd.Args, prop.Title)
-		cmd.Args = append(cmd.Args, prop.Subtitle)
-		cmd.Args = append(cmd.Args, prop.CreatedAt.Format("2006-01-02 15:04"))
-	}
+    // Update local proposal state and clear HTML/PDF
+    proposal.Title = title
+    proposal.Subtitle = subtitle
+    proposal.Prompt = prompt
+    proposal.HTMLURL = ""
+    proposal.PDFURL = ""
 
-	output, err := cmd.Output()
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error ejecutando yad: "+err.Error()))
-		return
-	}
-
-	selectedID := strings.TrimSpace(string(output))
-	// Remove separator if present (yad sometimes includes it)
-	selectedID = strings.TrimSuffix(selectedID, "|")
-	
-	if selectedID == "" {
-		fmt.Printf("%s\n", inputs.InfoStyle.Render("No se seleccionó ninguna propuesta"))
-		return
-	}
-
-	// Generate HTML for selected proposal
-	generateHTMLGUI(baseURL, selectedID)
+    exec.Command("yad","--info","--text=Texto regenerado. Generando HTML y PDF...").Run()
+    generateHTMLAndPDF(baseURL, proposal.ID)
 }
 
-// showPDFGenerator shows a list of proposals to generate PDF for
-func showPDFGenerator(baseURL string) {
-	// Get proposals from API
-	proposals, err := getProposals(baseURL)
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error obteniendo propuestas: "+err.Error()))
-		return
-	}
+// updateTitleSubtitleGUI: PATCH /proposal/{id}/title-subtitle
+func updateTitleSubtitleGUI(baseURL string, proposal *Proposal) {
+    cmd := exec.Command("yad",
+        "--form",
+        "--title=✍️ Actualizar Título/Subtítulo: "+proposal.Title,
+        `--field=Título:TXT`, proposal.Title,
+        `--field=Subtítulo:TXT`, proposal.Subtitle,
+        "--width=600",
+        "--height=260")
+    output, err := cmd.Output()
+    if err != nil { fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error ejecutando yad: "+err.Error())); return }
+    res := strings.TrimSpace(string(output))
+    if res == "" { return }
+    parts := strings.Split(res, "|")
+    if len(parts) < 2 { exec.Command("yad","--error","--text=Entrada inválida").Run(); return }
+    title := strings.TrimSpace(parts[0])
+    subtitle := strings.TrimSpace(parts[1])
 
-	if len(proposals) == 0 {
-		fmt.Printf("%s\n", inputs.InfoStyle.Render("No hay propuestas disponibles"))
-		return
-	}
+    body := map[string]string{ "title": title, "subtitle": subtitle }
+    b, _ := json.Marshal(body)
+    req, err := http.NewRequest("PATCH", fmt.Sprintf("%s/proposal/%s/title-subtitle", baseURL, proposal.ID), bytes.NewBuffer(b))
+    if err != nil { exec.Command("yad","--error","--text=No se pudo crear la solicitud").Run(); return }
+    req.Header.Set("Content-Type", "application/json")
+    resp, err := (&http.Client{}).Do(req)
+    if err != nil { exec.Command("yad","--error","--text=Error de red").Run(); return }
+    defer resp.Body.Close()
+    if resp.StatusCode != 200 { bodyBytes,_:=io.ReadAll(resp.Body); exec.Command("yad","--error","--text=Fallo al actualizar: "+string(bodyBytes)).Run(); return }
 
-	// Create yad list dialog
-	cmd := exec.Command("yad", 
-		"--list",
-		"--title=Generar PDF",
-		"--text=Selecciona una propuesta para generar PDF:",
-		"--column=ID",
-		"--column=Título",
-		"--column=Subtítulo", 
-		"--column=Creada",
-		"--width=800",
-		"--height=400",
-		"--search-column=2", // Search in title column
-		"--print-column=1",   // Return only ID
-		"--single-click",
-		"--separator=|")
-
-	// Add proposal items as arguments
-	for _, prop := range proposals {
-		// Add each field as separate argument
-		cmd.Args = append(cmd.Args, prop.ID)
-		cmd.Args = append(cmd.Args, prop.Title)
-		cmd.Args = append(cmd.Args, prop.Subtitle)
-		cmd.Args = append(cmd.Args, prop.CreatedAt.Format("2006-01-02 15:04"))
-	}
-
-	output, err := cmd.Output()
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error ejecutando yad: "+err.Error()))
-		return
-	}
-
-	selectedID := strings.TrimSpace(string(output))
-	// Remove separator if present (yad sometimes includes it)
-	selectedID = strings.TrimSuffix(selectedID, "|")
-	
-	if selectedID == "" {
-		fmt.Printf("%s\n", inputs.InfoStyle.Render("No se seleccionó ninguna propuesta"))
-		return
-	}
-
-	// Generate PDF for selected proposal
-	generatePDFGUI(baseURL, selectedID)
+    proposal.Title = title
+    proposal.Subtitle = subtitle
+    exec.Command("yad","--info","--text=Título/Subtítulo actualizados. Si deseas verlos en HTML/PDF, vuelve a generarlos.").Run()
 }
 
-// showProposalDownloader shows a list of proposals to download
-func showProposalDownloader(baseURL string) {
-	// Get proposals from API
-	proposals, err := getProposals(baseURL)
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error obteniendo propuestas: "+err.Error()))
-		return
-	}
-
-	if len(proposals) == 0 {
-		fmt.Printf("%s\n", inputs.InfoStyle.Render("No hay propuestas disponibles"))
-		return
-	}
-
-	// Create yad list dialog
-	cmd := exec.Command("yad", 
-		"--list",
-		"--title=Descargar Archivos",
-		"--text=Selecciona una propuesta para descargar:",
-		"--column=ID",
-		"--column=Título",
-		"--column=Subtítulo", 
-		"--column=Creada",
-		"--width=800",
-		"--height=400",
-		"--search-column=2", // Search in title column
-		"--print-column=1",   // Return only ID
-		"--single-click",
-		"--separator=|")
-
-	// Add proposal items as arguments
-	for _, prop := range proposals {
-		// Add each field as separate argument
-		cmd.Args = append(cmd.Args, prop.ID)
-		cmd.Args = append(cmd.Args, prop.Title)
-		cmd.Args = append(cmd.Args, prop.Subtitle)
-		cmd.Args = append(cmd.Args, prop.CreatedAt.Format("2006-01-02 15:04"))
-	}
-
-	output, err := cmd.Output()
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error ejecutando yad: "+err.Error()))
-		return
-	}
-
-	selectedID := strings.TrimSpace(string(output))
-	// Remove separator if present (yad sometimes includes it)
-	selectedID = strings.TrimSuffix(selectedID, "|")
-	
-	if selectedID == "" {
-		fmt.Printf("%s\n", inputs.InfoStyle.Render("No se seleccionó ninguna propuesta"))
-		return
-	}
-
-	// Find selected proposal
-	var selectedProposal *Proposal
-	for _, prop := range proposals {
-		if prop.ID == selectedID {
-			selectedProposal = &prop
-			break
-		}
-	}
-
-	if selectedProposal == nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Propuesta no encontrada"))
-		return
-	}
-
-	// Download all available files
-	downloadSpecificProposal(baseURL, *selectedProposal)
-}
-
-// openDownloadsFolder opens the downloads folder
-func openDownloadsFolder() {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al obtener directorio home: "+err.Error()))
-		return
-	}
-	downloadDir := filepath.Join(homeDir, "Downloads")
-	openDirectory(downloadDir)
-}
-
-// showProposalManager shows the main proposal manager interface with yad
-func showProposalManager(baseURL string) {
-	// Get proposals from API
-	proposals, err := getProposals(baseURL)
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error obteniendo propuestas: "+err.Error()))
-		return
-	}
-
-	if len(proposals) == 0 {
-		fmt.Printf("%s\n", inputs.InfoStyle.Render("No hay propuestas disponibles"))
-		return
-	}
-
-	// Create yad list dialog
-	cmd := exec.Command("yad", 
-		"--list",
-		"--title=Gestor de Propuestas",
-		"--text=Selecciona una propuesta:",
-		"--column=ID",
-		"--column=Título",
-		"--column=Subtítulo", 
-		"--column=Creada",
-		"--width=800",
-		"--height=400",
-		"--search-column=2", // Search in title column
-		"--print-column=1",   // Return only ID
-		"--single-click",
-		"--separator=|")
-
-	// Add proposal items as arguments
-	for _, prop := range proposals {
-		// Add each field as separate argument
-		cmd.Args = append(cmd.Args, prop.ID)
-		cmd.Args = append(cmd.Args, prop.Title)
-		cmd.Args = append(cmd.Args, prop.Subtitle)
-		cmd.Args = append(cmd.Args, prop.CreatedAt.Format("2006-01-02 15:04"))
-	}
-
-	output, err := cmd.Output()
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error ejecutando yad: "+err.Error()))
-		return
-	}
-
-	selectedID := strings.TrimSpace(string(output))
-	// Remove separator if present (yad sometimes includes it)
-	selectedID = strings.TrimSuffix(selectedID, "|")
-	
-	if selectedID == "" {
-		fmt.Printf("%s\n", inputs.InfoStyle.Render("No se seleccionó ninguna propuesta"))
-		return
-	}
-
-	// Find selected proposal
-	var selectedProposal *Proposal
-	for _, prop := range proposals {
-		if prop.ID == selectedID {
-			selectedProposal = &prop
-			break
-		}
-	}
-
-	if selectedProposal == nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Propuesta no encontrada"))
-		return
-	}
-
-	// Show proposal management menu
-	showProposalMenu(baseURL, *selectedProposal)
-}
-
-// showProposalMenu shows the menu for managing a specific proposal
-func showProposalMenu(baseURL string, proposal Proposal) {
-	// Create menu options based on available documents
-	menuItems := []string{
-		"Modificar propuesta",
-		"Ver propuesta (MD)",
-	}
-	
-	// Add conditional buttons based on document availability
-	if proposal.HTMLURL != "" {
-		menuItems = append(menuItems, "Ver HTML")
-	} else {
-		menuItems = append(menuItems, "Generar HTML")
-	}
-	
-	if proposal.PDFURL != "" {
-		menuItems = append(menuItems, "Ver PDF")
-	} else {
-		menuItems = append(menuItems, "Generar PDF")
-	}
-	
-	menuItems = append(menuItems, "Descargar archivos")
-	menuItems = append(menuItems, "Volver al listado")
-
-	// Show yad menu dialog
-	cmd := exec.Command("yad", 
-		"--list",
-		"--title=Gestionar Propuesta: "+proposal.Title,
-		"--text=Selecciona una acción:",
-		"--column=Acción",
-		"--width=400",
-		"--height=300",
-		"--print-column=1",
-		"--single-click",
-		"--separator=|")
-
-	// Add menu items
-	for _, item := range menuItems {
-		cmd.Args = append(cmd.Args, item)
-	}
-
-	output, err := cmd.Output()
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error ejecutando yad: "+err.Error()))
-		return
-	}
-
-	selectedAction := strings.TrimSpace(string(output))
-	if selectedAction == "" {
-		return
-	}
-
-	// Handle selected action
-	switch selectedAction {
-	case "Modificar propuesta":
-		modifyProposalGUI(baseURL, proposal)
-	case "Ver propuesta (MD)":
-		showProposalContent(baseURL, proposal)
-	case "Ver HTML":
-		// Open HTML file in browser
-		if proposal.HTMLURL != "" {
-			downloadPath := getDownloadPath(proposal.ID + ".html")
-			if err := downloadProposalFile(baseURL, proposal.ID, "html", downloadPath); err == nil {
-				openFile(downloadPath)
-			}
-		}
-	case "Generar HTML":
-		generateHTMLGUI(baseURL, proposal.ID)
-	case "Ver PDF":
-		// Open PDF file
-		if proposal.PDFURL != "" {
-			downloadPath := getDownloadPath(proposal.ID + ".pdf")
-			if err := downloadProposalFile(baseURL, proposal.ID, "pdf", downloadPath); err == nil {
-				openFile(downloadPath)
-			}
-		}
-	case "Generar PDF":
-		generatePDFGUI(baseURL, proposal.ID)
-	case "Descargar archivos":
-		downloadSpecificProposal(baseURL, proposal)
-	case "Volver al listado":
-		showProposalManager(baseURL)
-	}
-}
 
 // modifyProposalGUI shows a dialog to modify a proposal
 func modifyProposalGUI(baseURL string, proposal Proposal) {
@@ -1646,15 +1000,15 @@ func modifyProposalGUI(baseURL string, proposal Proposal) {
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al enviar la solicitud: "+err.Error()))
-		return
-	}
-	defer resp.Body.Close()
+			return
+		}
+		defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != 200 {
+			body, _ := io.ReadAll(resp.Body)
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render(fmt.Sprintf("Error del servidor (%d): %s", resp.StatusCode, string(body))))
-		return
-	}
+			return
+		}
 
 	var response ModifyProposalResponse
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
@@ -1665,8 +1019,11 @@ func modifyProposalGUI(baseURL string, proposal Proposal) {
 	fmt.Printf("%s\n", inputs.SuccessStyle.Render("¡Propuesta modificada exitosamente!"))
 	fmt.Printf("ID: %s\n", response.ID)
 
-	// Show success dialog
-	exec.Command("yad", "--info", "--title=Éxito", "--text=Propuesta modificada exitosamente").Run()
+// Generar HTML y PDF automáticamente tras modificar
+generateHTMLAndPDF(baseURL, proposal.ID)
+
+// Show success dialog
+exec.Command("yad", "--info", "--title=Éxito", "--text=Propuesta modificada y documentos generados").Run()
 }
 
 // showProposalContent shows the proposal content in a yad dialog
@@ -1732,17 +1089,20 @@ func showProposalContent(baseURL string, proposal Proposal) {
 // generateHTMLGUI generates HTML and shows success message
 func generateHTMLGUI(baseURL string, proposalID string) {
 	fmt.Printf("%s\n", inputs.InfoStyle.Render("Generando HTML..."))
+	showNotification("Generando HTML", "Iniciando generación de HTML...")
 
 	htmlRequest := HTMLGenerationRequest{ProposalID: proposalID}
 	jsonData, err := json.Marshal(htmlRequest)
 	if err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al serializar solicitud HTML: "+err.Error()))
+		showNotification("Error HTML", "Error al serializar solicitud HTML")
 		return
 	}
 
 	req, err := http.NewRequest("POST", baseURL+"/generate-html", bytes.NewBuffer(jsonData))
 	if err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al crear solicitud HTML: "+err.Error()))
+		showNotification("Error HTML", "Error al crear solicitud HTML")
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -1751,6 +1111,7 @@ func generateHTMLGUI(baseURL string, proposalID string) {
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al generar HTML: "+err.Error()))
+		showNotification("Error HTML", "Error al generar HTML")
 		return
 	}
 	defer resp.Body.Close()
@@ -1758,16 +1119,19 @@ func generateHTMLGUI(baseURL string, proposalID string) {
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render(fmt.Sprintf("Error del servidor (%d): %s", resp.StatusCode, string(body))))
+		showNotification("Error HTML", fmt.Sprintf("Error del servidor (%d)", resp.StatusCode))
 		return
 	}
 
 	var htmlResponse HTMLGenerationResponse
 	if err := json.NewDecoder(resp.Body).Decode(&htmlResponse); err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al decodificar respuesta HTML: "+err.Error()))
+		showNotification("Error HTML", "Error al decodificar respuesta HTML")
 		return
 	}
 
 	fmt.Printf("%s\n", inputs.SuccessStyle.Render("✓ HTML generado exitosamente"))
+	showNotification("HTML Listo", "HTML generado exitosamente")
 
 	// Download HTML file
 	downloadProposalFile(baseURL, proposalID, "html", getDownloadPath(proposalID+".html"))
@@ -1805,6 +1169,7 @@ func generatePDFGUI(baseURL string, proposalID string) {
 	}
 
 	fmt.Printf("%s\n", inputs.InfoStyle.Render("Generando PDF en modo: "+mode+"..."))
+	showNotification("Generando PDF", "Iniciando generación de PDF en modo "+mode+"...")
 
 	pdfRequest := PDFGenerationRequest{
 		ProposalID: proposalID,
@@ -1813,12 +1178,14 @@ func generatePDFGUI(baseURL string, proposalID string) {
 	jsonData, err := json.Marshal(pdfRequest)
 	if err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al serializar solicitud PDF: "+err.Error()))
+		showNotification("Error PDF", "Error al serializar solicitud PDF")
 		return
 	}
 
 	req, err := http.NewRequest("POST", baseURL+"/generate-pdf", bytes.NewBuffer(jsonData))
 	if err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al crear solicitud PDF: "+err.Error()))
+		showNotification("Error PDF", "Error al crear solicitud PDF")
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -1827,6 +1194,7 @@ func generatePDFGUI(baseURL string, proposalID string) {
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al generar PDF: "+err.Error()))
+		showNotification("Error PDF", "Error al generar PDF")
 		return
 	}
 	defer resp.Body.Close()
@@ -1834,21 +1202,25 @@ func generatePDFGUI(baseURL string, proposalID string) {
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render(fmt.Sprintf("Error del servidor (%d): %s", resp.StatusCode, string(body))))
+		showNotification("Error PDF", fmt.Sprintf("Error del servidor (%d)", resp.StatusCode))
 		return
 	}
 
 	var pdfResponse PDFGenerationResponse
 	if err := json.NewDecoder(resp.Body).Decode(&pdfResponse); err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al decodificar respuesta PDF: "+err.Error()))
+		showNotification("Error PDF", "Error al decodificar respuesta PDF")
 		return
 	}
 
 	fmt.Printf("%s\n", inputs.SuccessStyle.Render("✓ PDF generado exitosamente"))
+	showNotification("PDF Listo", "PDF generado exitosamente")
 
 	// Download PDF file
 	filepath := getDownloadPath(proposalID + ".pdf")
 	if err := downloadProposalFile(baseURL, proposalID, "pdf", filepath); err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al descargar PDF: "+err.Error()))
+		showNotification("Error PDF", "Error al descargar PDF")
 		return
 	}
 
@@ -2009,150 +1381,6 @@ func openFile(filepath string) {
 	}
 }
 
-// showProposalViewer shows the proposal viewer interface for downloading and viewing
-func showProposalViewer(baseURL string) {
-	// Get proposals from API
-	proposals, err := getProposals(baseURL)
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error obteniendo propuestas: "+err.Error()))
-		return
-	}
-
-	if len(proposals) == 0 {
-		fmt.Printf("%s\n", inputs.InfoStyle.Render("No hay propuestas disponibles"))
-		return
-	}
-
-	// Create yad list dialog
-	cmd := exec.Command("yad", 
-		"--list",
-		"--title=Ver Propuestas",
-		"--text=Selecciona una propuesta para descargar y ver:",
-		"--column=ID",
-		"--column=Título",
-		"--column=Subtítulo", 
-		"--column=Creada",
-		"--width=800",
-		"--height=400",
-		"--search-column=2", // Search in title column
-		"--print-column=1",   // Return only ID
-		"--single-click",
-		"--separator=|")
-
-	// Add proposal items as arguments
-	for _, prop := range proposals {
-		// Add each field as separate argument
-		cmd.Args = append(cmd.Args, prop.ID)
-		cmd.Args = append(cmd.Args, prop.Title)
-		cmd.Args = append(cmd.Args, prop.Subtitle)
-		cmd.Args = append(cmd.Args, prop.CreatedAt.Format("2006-01-02 15:04"))
-	}
-
-	output, err := cmd.Output()
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error ejecutando yad: "+err.Error()))
-		return
-	}
-
-	selectedID := strings.TrimSpace(string(output))
-	// Remove separator if present (yad sometimes includes it)
-	selectedID = strings.TrimSuffix(selectedID, "|")
-	
-	if selectedID == "" {
-		fmt.Printf("%s\n", inputs.InfoStyle.Render("No se seleccionó ninguna propuesta"))
-		return
-	}
-
-	// Find selected proposal
-	var selectedProposal *Proposal
-	for _, prop := range proposals {
-		if prop.ID == selectedID {
-			selectedProposal = &prop
-			break
-		}
-	}
-
-	if selectedProposal == nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Propuesta no encontrada"))
-		return
-	}
-
-	// Download all available files for viewing
-	fmt.Printf("%s\n", inputs.InfoStyle.Render("Descargando archivos de la propuesta: "+selectedProposal.Title))
-	
-	// Get download directory
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al obtener directorio home: "+err.Error()))
-		return
-	}
-	downloadDir := filepath.Join(homeDir, "Downloads")
-
-	// Create download directory if it doesn't exist
-	if err := os.MkdirAll(downloadDir, 0755); err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al crear directorio de descarga: "+err.Error()))
-		return
-	}
-
-	// Download MD file (always try since MD is always generated)
-	mdPath := filepath.Join(downloadDir, selectedProposal.ID+".md")
-	if err := downloadProposalFile(baseURL, selectedProposal.ID, "md", mdPath); err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al descargar MD: "+err.Error()))
-	} else {
-		fmt.Printf("%s\n", inputs.SuccessStyle.Render("✓ MD descargado"))
-	}
-
-	// Download HTML file (only if HTML URL exists)
-	if selectedProposal.HTMLURL != "" {
-		htmlPath := filepath.Join(downloadDir, selectedProposal.ID+".html")
-		if err := downloadProposalFile(baseURL, selectedProposal.ID, "html", htmlPath); err != nil {
-			fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al descargar HTML: "+err.Error()))
-		} else {
-			fmt.Printf("%s\n", inputs.SuccessStyle.Render("✓ HTML descargado"))
-		}
-	}
-
-	// Download PDF file (only if PDF URL exists)
-	if selectedProposal.PDFURL != "" {
-		pdfPath := filepath.Join(downloadDir, selectedProposal.ID+".pdf")
-		if err := downloadProposalFile(baseURL, selectedProposal.ID, "pdf", pdfPath); err != nil {
-			fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al descargar PDF: "+err.Error()))
-		} else {
-			fmt.Printf("%s\n", inputs.SuccessStyle.Render("✓ PDF descargado"))
-		}
-	}
-
-	fmt.Printf("%s\n", inputs.SuccessStyle.Render("Archivos descargados en: " + downloadDir))
-
-	// Show success dialog with options
-	cmd = exec.Command("yad",
-		"--question",
-		"--title=Archivos Descargados",
-		"--text=Archivos descargados exitosamente.\n¿Qué deseas hacer?",
-		"--button=Abrir Carpeta:1",
-		"--button=Abrir MD:2",
-		"--button=Abrir HTML:3",
-		"--button=Abrir PDF:4",
-		"--button=Cerrar:0")
-
-	cmd.Run()
-	exitCode := cmd.ProcessState.ExitCode()
-
-	switch exitCode {
-	case 1: // Open folder
-		openDirectory(downloadDir)
-	case 2: // Open MD
-		openFile(mdPath)
-	case 3: // Open HTML
-		if selectedProposal.HTMLURL != "" {
-			openFile(filepath.Join(downloadDir, selectedProposal.ID+".html"))
-		}
-	case 4: // Open PDF
-		if selectedProposal.PDFURL != "" {
-			openFile(filepath.Join(downloadDir, selectedProposal.ID+".pdf"))
-		}
-	}
-}
 
 // installDesktopApp creates a .desktop file for the application
 func installDesktopApp() {
