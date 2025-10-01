@@ -2,9 +2,13 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 
 	"github.com/osmargm1202/orgm/cmd/adm"
 	"github.com/osmargm1202/orgm/cmd/misc"
@@ -17,19 +21,13 @@ var version = "v0.134"
 
 var UpdateCmd = &cobra.Command{
 	Use:   "update",
-	Short: "Update the application",
+	Short: "Update ORGM to the latest version",
+	Long:  `Downloads the latest ORGM installer and updates the binary automatically.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		updateFunc()
 	},
 }
 
-var InstallCmd = &cobra.Command{
-	Use:   "install",
-	Short: "Install the application in dev Linux",
-	Run: func(cmd *cobra.Command, args []string) {
-		installFunc()
-	},
-}
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
@@ -69,10 +67,9 @@ func init() {
 	RootCmd.AddCommand(adm.AdmCmd)
 	RootCmd.AddCommand(misc.MiscCmd)
 	RootCmd.AddCommand(InitCmd)
-	RootCmd.AddCommand(KeysCmd())
-	RootCmd.AddCommand(LinksCmd())
 	RootCmd.AddCommand(ConfigCmd())
 	RootCmd.AddCommand(UpdateCmd)
+	RootCmd.AddCommand(PropCmd)
 	RootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 
 }
@@ -114,37 +111,100 @@ func initConfig() {
 		fmt.Println("Loaded config.toml")
 	}
 
-	// Load additional config files (links.toml and keys.toml)
-	loadAdditionalConfigs()
 }
 
-func loadAdditionalConfigs() {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
+
+func updateFunc() {
+	fmt.Printf("%s\n", inputs.TitleStyle.Render("🚀 Updating ORGM to latest version"))
+
+	var installerURL, installerName string
+
+	switch runtime.GOOS {
+	case "windows":
+		installerURL = "https://raw.githubusercontent.com/osmargm1202/orgm/master/install.bat"
+		installerName = "install.bat"
+	case "linux", "darwin":
+		installerURL = "https://raw.githubusercontent.com/osmargm1202/orgm/master/install.sh"
+		installerName = "install.sh"
+	default:
+		fmt.Printf("❌ Unsupported operating system: %s\n", runtime.GOOS)
 		return
 	}
 
-	configDir := filepath.Join(homeDir, ".config", "orgm")
+	// Download the installer
+	fmt.Printf("%s\n", inputs.InfoStyle.Render("📥 Downloading installer..."))
+	
+	resp, err := http.Get(installerURL)
+	if err != nil {
+		fmt.Printf("❌ Error downloading installer: %v\n", err)
+		return
+	}
+	defer resp.Body.Close()
 
-	// Load links.toml
-	linksFile := filepath.Join(configDir, "links.toml")
-	if _, err := os.Stat(linksFile); err == nil {
-		viper.SetConfigFile(linksFile)
-		if err := viper.MergeInConfig(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Error reading links.toml: %v\n", err)
-		} else {
-			fmt.Println("Loaded links.toml")
+	if resp.StatusCode != http.StatusOK {
+		fmt.Printf("❌ Error: HTTP %d when downloading installer\n", resp.StatusCode)
+		return
+	}
+
+	// Create temporary installer file
+	tempFile := filepath.Join(os.TempDir(), installerName)
+	out, err := os.Create(tempFile)
+	if err != nil {
+		fmt.Printf("❌ Error creating temporary file: %v\n", err)
+		return
+	}
+
+	// Copy installer content to temporary file
+	_, err = io.Copy(out, resp.Body)
+	out.Close()
+	if err != nil {
+		fmt.Printf("❌ Error writing installer: %v\n", err)
+		os.Remove(tempFile)
+		return
+	}
+
+	// Make installer executable on Unix systems
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(tempFile, 0755); err != nil {
+			fmt.Printf("❌ Error setting executable permissions: %v\n", err)
+			os.Remove(tempFile)
+			return
 		}
 	}
 
-	// Load keys.toml
-	keysFile := filepath.Join(configDir, "keys.toml")
-	if _, err := os.Stat(keysFile); err == nil {
-		viper.SetConfigFile(keysFile)
-		if err := viper.MergeInConfig(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Error reading keys.toml: %v\n", err)
-		} else {
-			fmt.Println("Loaded keys.toml")
-		}
+	// Execute the installer
+	fmt.Printf("%s\n", inputs.InfoStyle.Render("🔧 Running installer..."))
+	
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("cmd", "/c", tempFile)
+	case "linux", "darwin":
+		cmd = exec.Command("bash", tempFile)
+	}
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+
+	err = cmd.Run()
+	
+	// Clean up temporary file
+	os.Remove(tempFile)
+
+	if err != nil {
+		fmt.Printf("❌ Error running installer: %v\n", err)
+		return
+	}
+
+	fmt.Printf("%s\n", inputs.SuccessStyle.Render("✅ ORGM updated successfully!"))
+	fmt.Printf("%s\n", inputs.InfoStyle.Render("💡 If this is your first time, you may need to open a new terminal or run:"))
+	
+	switch runtime.GOOS {
+	case "windows":
+		fmt.Printf("%s\n", inputs.InfoStyle.Render("   • Open a new Command Prompt or PowerShell"))
+	case "linux", "darwin":
+		fmt.Printf("%s\n", inputs.InfoStyle.Render("   • source ~/.bashrc (or ~/.zshrc)"))
+		fmt.Printf("%s\n", inputs.InfoStyle.Render("   • Or open a new terminal"))
 	}
 }

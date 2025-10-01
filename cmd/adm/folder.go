@@ -253,7 +253,7 @@ func cargarEsquemas(tipoProyecto string) ([]string, error) {
 	}
 
 	appsPath = filepath.Join(homedir, appsPath)
-	schemaPath := filepath.Join(appsPath, "folder", "schema.json")
+	schemaPath := filepath.Join(appsPath, "folder", "folder.json")
 
 	data, err := os.ReadFile(schemaPath)
 	if err != nil {
@@ -292,7 +292,7 @@ func nombreCarpetaProyecto(cotizacion int) (string, error) {
 		return "", err
 	}
 
-	nombreProyecto := fmt.Sprintf("%d - %s - %s", cotizacion, datos.Servicio.Nombre, datos.Proyecto.NombreProyecto)
+	nombreProyecto := fmt.Sprintf("%d - %s", cotizacion, datos.Proyecto.NombreProyecto)
 	return nombreProyecto, nil
 }
 

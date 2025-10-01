@@ -4,16 +4,18 @@ Descripción general: Herramienta CLI en Go para automatizar flujos de trabajo (
 
 ## 2025-01-11
 - **Eliminación de Docker**: Removidas todas las funciones de Docker del proyecto
+- **Eliminación de keys y links**: Removidos comandos `orgm keys` y `orgm links` y sus funcionalidades asociadas
+  - Eliminadas funciones `KeysCmd()` y `LinksCmd()` del sistema de comandos
+  - Eliminadas funciones de sincronización R2 para `keys.toml` y `links.toml`
+  - Eliminada carga automática de archivos `links.toml` y `keys.toml`
+  - Solo se mantiene `config.toml` como archivo de configuración principal
 - **Simplificación de comandos de configuración**:
-  - `orgm keys [editor]`: Edita `keys.toml` localmente (sin descarga/upload automático)
-  - `orgm links [editor]`: Edita `links.toml` localmente (sin descarga/upload automático)  
   - `orgm config [editor]`: Edita `config.toml` localmente (sin descarga/upload automático)
   - Descarga/upload manual con `init` y `update` respectivamente
 - **Nuevo comando `orgm viper`**: Muestra todas las variables de configuración cargadas
   - Visualización organizada por categorías
-  - Detección automática de archivos config.toml, links.toml y keys.toml
+  - Detección automática de archivo config.toml
   - Valores formateados para fácil lectura
-- **Carga automática de archivos TOML**: Viper ahora carga automáticamente links.toml y keys.toml
 - **Variables de entorno**: Uso de `BUCKET_URL` y `BUCKET_TOKEN` para sincronización R2
 - Nuevo comando `orgm prop` para gestión completa de propuestas con API:
   - Crear nuevas propuestas con textarea para prompts largos

@@ -164,7 +164,7 @@ var InitCmd = &cobra.Command{
 		fmt.Println("Token retrieved successfully")
 
 		// Download all config files
-		configFiles := []string{"keys.toml", "links.toml", "config.toml"}
+		configFiles := []string{"keys.toml", "links.toml", "config.toml", "folder.json"}
 
 		for _, filename := range configFiles {
 			fmt.Printf("Downloading %s...\n", filename)
@@ -178,11 +178,9 @@ var InitCmd = &cobra.Command{
 			fmt.Printf("Warning: Could not reload main config: %v\n", err)
 		}
 
-		// Load additional configs (this will include the newly downloaded keys.toml)
-		loadAdditionalConfigs()
 
 		fmt.Printf("%s\n", inputs.SuccessStyle.Render("ORGM CLI initialized successfully!"))
-		fmt.Println("You can now use 'orgm keys update', 'orgm links update', and 'orgm config update' to upload files.")
+		fmt.Println("You can now use 'orgm keys update', 'orgm links update', 'orgm config update', and 'orgm folder' commands.")
 
 		return nil
 	},

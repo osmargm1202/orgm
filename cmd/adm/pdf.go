@@ -82,7 +82,7 @@ func init() {
 	PdfCmd.AddCommand(PrintCotizacionCmd)
 }
 
-// Estructura para el schema.json
+// Estructura para el folder.json
 type Schema struct {
 	Tipos map[string]struct {
 		Carpetas []string `json:"carpetas"`
@@ -91,12 +91,6 @@ type Schema struct {
 
 // Función para crear estructura de carpetas basada en fecha
 func crearEstructuraCarpetas(tipoDocumento string, fecha time.Time) (string, error) {
-	// Obtener la ruta base de configuración
-	configPath := viper.GetString("config_path")
-	if configPath == "" {
-		return "", fmt.Errorf("la variable 'config_path' no está configurada en viper")
-	}
-
 	// Obtener la ruta base de administración
 	rutaAdmin := viper.GetString("carpetas.administracion")
 	if rutaAdmin == "" {
@@ -117,7 +111,7 @@ func crearEstructuraCarpetas(tipoDocumento string, fecha time.Time) (string, err
 	mes := fecha.Format("01")
 	rutaBaseTemporal := filepath.Join(rutaAdmin, ano, mes)
 
-	// Leer schema.json para obtener las carpetas de administración
+	// Leer folder.json para obtener las carpetas de administración
 	appsPath := viper.GetString("carpetas.apps")
 	if appsPath == "" {
 		return "", fmt.Errorf("carpeta de apps no configurada (carpetas.apps)")
@@ -129,21 +123,21 @@ func crearEstructuraCarpetas(tipoDocumento string, fecha time.Time) (string, err
 	}
 
 	appsPath = filepath.Join(homedir, appsPath)
-	schemaPath := filepath.Join(appsPath, "folder", "schema.json")
+	schemaPath := filepath.Join(appsPath, "folder", "folder.json")
 	schemaFile, err := os.ReadFile(schemaPath)
 	if err != nil {
-		return "", fmt.Errorf("error leyendo schema.json desde %s: %w", schemaPath, err)
+		return "", fmt.Errorf("error leyendo folder.json desde %s: %w", schemaPath, err)
 	}
 
 	var schema Schema
 	if err := json.Unmarshal(schemaFile, &schema); err != nil {
-		return "", fmt.Errorf("error parseando schema.json: %w", err)
+		return "", fmt.Errorf("error parseando folder.json: %w", err)
 	}
 
 	// Obtener las carpetas de administración
-	adminTipo, exists := schema.Tipos["Administracion"]
+	adminTipo, exists := schema.Tipos["administracion"]
 	if !exists {
-		return "", fmt.Errorf("no se encontró el tipo 'Administracion' en schema.json")
+		return "", fmt.Errorf("no se encontró el tipo 'Administracion' en folder.json")
 	}
 
 	// Crear todas las carpetas de administración
