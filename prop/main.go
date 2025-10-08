@@ -14,13 +14,24 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BurntSushi/toml"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"golang.org/x/oauth2/google"
+	"google.golang.org/api/idtoken"
+	"google.golang.org/api/option"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
+
+// Config represents the configuration structure
+type Config struct {
+	URL struct {
+		PropuestasAPI string `toml:"propuestas_api"`
+	} `toml:"url"`
+}
 
 // App struct
 type App struct {
@@ -660,6 +671,56 @@ func (a *App) DeleteProposal(proposalID string) map[string]interface{} {
 	return map[string]interface{}{"success": true}
 }
 
+// OpenDirectory opens the downloads directory
+func (a *App) OpenDirectory() map[string]interface{} {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	
+	downloadsDir := filepath.Join(homeDir, "Downloads")
+	
+	// Try to open directory
+	var cmd *exec.Cmd
+	switch {
+	case isCommandAvailable("xdg-open"):
+		cmd = exec.Command("xdg-open", downloadsDir)
+	case isCommandAvailable("open"):
+		cmd = exec.Command("open", downloadsDir)
+	case isCommandAvailable("explorer"):
+		cmd = exec.Command("explorer", downloadsDir)
+	default:
+		return map[string]interface{}{"success": false, "error": "No se pudo abrir el directorio automáticamente"}
+	}
+	
+	if err := cmd.Start(); err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	
+	return map[string]interface{}{"success": true}
+}
+
+// OpenFile opens a file with the default application
+func (a *App) OpenFile(filepath string) map[string]interface{} {
+	var cmd *exec.Cmd
+	switch {
+	case isCommandAvailable("xdg-open"):
+		cmd = exec.Command("xdg-open", filepath)
+	case isCommandAvailable("open"):
+		cmd = exec.Command("open", filepath)
+	case isCommandAvailable("explorer"):
+		cmd = exec.Command("explorer", filepath)
+	default:
+		return map[string]interface{}{"success": false, "error": "No se pudo abrir el archivo automáticamente"}
+	}
+	
+	if err := cmd.Start(); err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	
+	return map[string]interface{}{"success": true}
+}
+
 // Helper functions
 func getBaseURL() (string, error) {
 	// Get home directory
@@ -668,17 +729,15 @@ func getBaseURL() (string, error) {
 		return "", fmt.Errorf("error obteniendo directorio home: %v", err)
 	}
 	
-	// Try to load config from ~/.config/orgm/config.json
-	configPath := filepath.Join(homeDir, ".config", "orgm", "config.json")
+	// Try to load config from ~/.config/orgm/config.toml
+	configPath := filepath.Join(homeDir, ".config", "orgm", "config.toml")
 	if _, err := os.Stat(configPath); err == nil {
 		configData, err := os.ReadFile(configPath)
 		if err == nil {
-			var config map[string]interface{}
-			if err := json.Unmarshal(configData, &config); err == nil {
-				if urls, ok := config["url"].(map[string]interface{}); ok {
-					if baseURL, ok := urls["propuestas_api"].(string); ok && baseURL != "" {
-						return strings.TrimSuffix(baseURL, "/"), nil
-					}
+			var config Config
+			if _, err := toml.Decode(string(configData), &config); err == nil {
+				if config.URL.PropuestasAPI != "" {
+					return strings.TrimSuffix(config.URL.PropuestasAPI, "/"), nil
 				}
 			}
 		}
@@ -692,72 +751,109 @@ func getBaseURL() (string, error) {
 	return strings.TrimSuffix(baseURL, "/"), nil
 }
 
-// getGCloudIDToken gets the Google Cloud ID token using orgm gauth command
+// getGCloudIDToken obtains an ID token for Cloud Run using the same logic as gcr.go
 func getGCloudIDToken() (string, error) {
-	// Get home directory
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("error obteniendo directorio home: %v", err)
-	}
-	
-	// Check if token file exists
-	tokenPath := filepath.Join(homeDir, ".config", "orgm", ".gauth_token.json")
-	
-	// Try to read existing token
-	if _, err := os.Stat(tokenPath); err == nil {
-		tokenData, err := os.ReadFile(tokenPath)
-		if err == nil {
-			var tokenInfo TokenInfo
-			if err := json.Unmarshal(tokenData, &tokenInfo); err == nil {
-				// Check if token is still valid (not expired)
-				if time.Now().Before(tokenInfo.ExpiresAt) {
-					return tokenInfo.Token, nil
-				}
-			}
+	// Try disk cache first
+	if cachedTok, cachedExp, ok := loadCachedToken(); ok {
+		if time.Unix(cachedExp, 0).After(time.Now().Add(2 * time.Minute)) {
+			return cachedTok, nil
 		}
 	}
-	
-	// Token doesn't exist or is expired, generate new one
-	return generateNewToken()
-}
 
-// generateNewToken generates a new token using orgm gauth command
-func generateNewToken() (string, error) {
-	// Execute orgm gauth command
-	cmd := exec.Command("orgm", "gauth")
-	output, err := cmd.Output()
+	// Get audience from config
+	baseURL, err := getBaseURL()
 	if err != nil {
-		return "", fmt.Errorf("error ejecutando orgm gauth: %v", err)
+		return "", fmt.Errorf("url.propuestas_api no está configurado: %v", err)
 	}
-	
-	// Parse the output to get the token
-	var tokenInfo TokenInfo
-	if err := json.Unmarshal(output, &tokenInfo); err != nil {
-		return "", fmt.Errorf("error parseando respuesta de orgm gauth: %v", err)
-	}
-	
-	// Save token to file
+
+	// Get config path
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("error obteniendo directorio home: %v", err)
 	}
-	
-	configDir := filepath.Join(homeDir, ".config", "orgm")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		return "", fmt.Errorf("error creando directorio de configuración: %v", err)
+	configPath := filepath.Join(homeDir, ".config", "orgm")
+	credFile := filepath.Join(configPath, "orgmdev_google.json")
+
+	// Validate credentials file exists
+	if _, err := os.Stat(credFile); err != nil {
+		return "", fmt.Errorf("no se encontró el archivo de credenciales: %s", credFile)
 	}
-	
-	tokenPath := filepath.Join(configDir, ".gauth_token.json")
-	tokenData, err := json.Marshal(tokenInfo)
+
+	ctx := context.Background()
+
+	// Prefer idtoken for Cloud Run (OIDC ID token for the service URL)
+	ts, err := idtoken.NewTokenSource(ctx, baseURL, option.WithCredentialsFile(credFile))
 	if err != nil {
-		return "", fmt.Errorf("error serializando token: %v", err)
+		// Fallback: try default credentials path if provided via env
+		if _, derr := google.FindDefaultCredentials(ctx); derr != nil {
+			return "", fmt.Errorf("no se pudo crear TokenSource: %v", err)
+		}
+		ts, err = idtoken.NewTokenSource(ctx, baseURL)
+		if err != nil {
+			return "", fmt.Errorf("no se pudo crear TokenSource (fallback): %v", err)
+		}
 	}
-	
-	if err := os.WriteFile(tokenPath, tokenData, 0600); err != nil {
-		return "", fmt.Errorf("error guardando token: %v", err)
+
+	tok, err := ts.Token()
+	if err != nil {
+		return "", fmt.Errorf("no se pudo obtener token: %v", err)
 	}
-	
-	return tokenInfo.Token, nil
+
+	// Determine expiry
+	var expiryUnix int64
+	if !tok.Expiry.IsZero() {
+		expiryUnix = tok.Expiry.Unix()
+	} else {
+		// If expiry is missing, set a short-lived default (55 minutes typical for ID tokens)
+		expiryUnix = time.Now().Add(55 * time.Minute).Unix()
+	}
+
+	// Persist to disk for reuse across runs
+	_ = saveCachedToken(tok.AccessToken, expiryUnix)
+
+	return tok.AccessToken, nil
+}
+
+// tokenCachePath returns the path where the token cache is stored
+func tokenCachePath() string {
+	homeDir, _ := os.UserHomeDir()
+	configPath := filepath.Join(homeDir, ".config", "orgm")
+	return filepath.Join(configPath, ".gauth_token.json")
+}
+
+func loadCachedToken() (string, int64, bool) {
+	path := tokenCachePath()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", 0, false
+	}
+	var data struct {
+		Token       string `json:"token"`
+		ExpiryUnix  int64  `json:"expiry_unix"`
+	}
+	if err := json.Unmarshal(b, &data); err != nil {
+		return "", 0, false
+	}
+	if data.Token == "" || data.ExpiryUnix == 0 {
+		return "", 0, false
+	}
+	return data.Token, data.ExpiryUnix, true
+}
+
+func saveCachedToken(token string, expiryUnix int64) error {
+	path := tokenCachePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	data := struct {
+		Token      string `json:"token"`
+		ExpiryUnix int64  `json:"expiry_unix"`
+	}{Token: token, ExpiryUnix: expiryUnix}
+	b, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, b, 0600)
 }
 
 // attachAuth adds the Authorization header using the cached Google ID token
@@ -769,6 +865,12 @@ func attachAuth(req *http.Request) {
 		return
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
+}
+
+// isCommandAvailable checks if a command is available in the system PATH
+func isCommandAvailable(command string) bool {
+	_, err := exec.LookPath(command)
+	return err == nil
 }
 
 // main is the entry point for the Wails application

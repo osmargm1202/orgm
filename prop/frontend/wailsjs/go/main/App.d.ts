@@ -16,6 +16,10 @@ export function GetProposals():Promise<Array<main.Proposal>>;
 
 export function ModifyProposal(arg1:string,arg2:string,arg3:string,arg4:string):Promise<Record<string, any>>;
 
+export function OpenDirectory():Promise<Record<string, any>>;
+
+export function OpenFile(arg1:string):Promise<Record<string, any>>;
+
 export function RegenerateProposal(arg1:string,arg2:string,arg3:string,arg4:string):Promise<Record<string, any>>;
 
 export function UpdateTitleSubtitle(arg1:string,arg2:string,arg3:string):Promise<Record<string, any>>;

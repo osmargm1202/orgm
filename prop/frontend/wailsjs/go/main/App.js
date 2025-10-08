@@ -30,6 +30,14 @@ export function ModifyProposal(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['ModifyProposal'](arg1, arg2, arg3, arg4);
 }
 
+export function OpenDirectory() {
+  return window['go']['main']['App']['OpenDirectory']();
+}
+
+export function OpenFile(arg1) {
+  return window['go']['main']['App']['OpenFile'](arg1);
+}
+
 export function RegenerateProposal(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['RegenerateProposal'](arg1, arg2, arg3, arg4);
 }
