@@ -15,10 +15,10 @@ Descarga e instala desde PowerShell o Command Prompt:
 
 ```powershell
 # PowerShell
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/osmargm1202/orgm/master/install.bat" -OutFile "install.bat" && .\install.bat && del install.bat
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/osmargm1202/orgm/master/install.bat" -OutFile "install.bat"; .\install.bat; del install.bat
 
 # Command Prompt  
-curl -O https://raw.githubusercontent.com/osmargm1202/orgm/master/install.bat && install.bat && del install.bat
+powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/osmargm1202/orgm/master/install.bat' -OutFile 'install.bat'"; install.bat; del install.bat
 ```
 
 ### Instalación Manual
@@ -29,13 +29,16 @@ Si prefieres instalar manualmente:
 ```bash
 mkdir -p ~/.local/bin
 curl -L https://raw.githubusercontent.com/osmargm1202/orgm/master/orgm -o ~/.local/bin/orgm
+curl -L https://raw.githubusercontent.com/osmargm1202/orgm/master/prop/build/bin/orgm-prop -o ~/.local/bin/orgm-prop
 chmod +x ~/.local/bin/orgm
+chmod +x ~/.local/bin/orgm-prop
 ```
 
 #### Windows
 ```powershell
 mkdir "$env:USERPROFILE\.config\orgm" -Force
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/osmargm1202/orgm/master/orgm.exe" -OutFile "$env:USERPROFILE\.config\orgm\orgm.exe"
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/osmargm1202/orgm/master/prop/build/bin/orgm-prop.exe" -OutFile "$env:USERPROFILE\.config\orgm\orgm-prop.exe"
 ```
 
 # 🔄 Actualización
