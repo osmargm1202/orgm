@@ -9,6 +9,7 @@ import (
 
 	"github.com/osmargm1202/orgm/inputs"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var checkCmd = &cobra.Command{
@@ -16,9 +17,7 @@ var checkCmd = &cobra.Command{
 	Short: "Check the application",
 	Long:  `Check the connectivity to the application servers and endpoints using TCP ping`,
 	Run: func(cmd *cobra.Command, args []string) {
-		VerifyUrls()
-		verifyCloudUrl()
-		verifyPostgrestUrl()
+		verifyAllUrls()
 	},
 }
 
@@ -63,53 +62,37 @@ func pingEndpoint(fullUrl string) string {
 	return "OK"
 }
 
-var ApiEndPoints = []string{
-	"/cot",
-	"/fac",
-	"/ai",
-}
-
-func VerifyUrls() {
-	apiUrl, _ := InitializeApi()
-
-	for _, endpoint := range ApiEndPoints {
-		fullEndpoint := apiUrl + endpoint
-		fmt.Println(inputs.InfoStyle.Render(fmt.Sprintf("Ping %s", fullEndpoint)))
+func verifyAllUrls() {
+	// Obtener todas las claves que empiezan con "url."
+	allKeys := viper.AllKeys()
+	urlKeys := make(map[string]string)
+	
+	for _, key := range allKeys {
+		if strings.HasPrefix(key, "url.") {
+			value := viper.GetString(key)
+			if value != "" {
+				urlKeys[key] = value
+			}
+		}
+	}
+	
+	if len(urlKeys) == 0 {
+		fmt.Printf("%s\n", inputs.WarningStyle.Render("No URL configurations found"))
+		return
+	}
+	
+	// Imprimir cada URL y hacer ping
+	for key, value := range urlKeys {
+		fmt.Println(inputs.InfoStyle.Render(fmt.Sprintf("%s: %s", key, value)))
 		start := time.Now()
-		res := pingEndpoint(fullEndpoint)
+		res := pingEndpoint(value)
 		elapsed := time.Since(start)
 		if res == "OK" {
 			fmt.Printf("%s (%dms)\n", inputs.SuccessStyle.Render(res), elapsed.Milliseconds())
 		} else {
 			fmt.Printf("%s (%dms)\n", inputs.ErrorStyle.Render(res), elapsed.Milliseconds())
 		}
-	}
-}
-
-func verifyCloudUrl() {
-	url := "https://cloud.orgmapp.com"
-	fmt.Println(inputs.InfoStyle.Render(fmt.Sprintf("Ping %s", url)))
-	start := time.Now()
-	res := pingEndpoint(url)
-	elapsed := time.Since(start)
-	if res == "OK" {
-		fmt.Printf("%s (%dms)\n", inputs.SuccessStyle.Render(res), elapsed.Milliseconds())
-	} else {
-		fmt.Printf("%s (%dms)\n", inputs.ErrorStyle.Render(res), elapsed.Milliseconds())
-	}
-}
-
-func verifyPostgrestUrl() {
-	postgrestUrl, _ := InitializePostgrest()
-
-	fmt.Println(inputs.InfoStyle.Render(fmt.Sprintf("Ping %s", postgrestUrl)))
-	start := time.Now()
-	res := pingEndpoint(postgrestUrl)
-	elapsed := time.Since(start)
-	if res == "OK" {
-		fmt.Printf("%s (%dms)\n", inputs.SuccessStyle.Render(res), elapsed.Milliseconds())
-	} else {
-		fmt.Printf("%s (%dms)\n", inputs.ErrorStyle.Render(res), elapsed.Milliseconds())
+		fmt.Println() // Línea en blanco para separar
 	}
 }
 
