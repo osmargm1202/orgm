@@ -120,5 +120,5 @@ func EditConfig(editor string) {
 }
 
 func init() {
-	// RootCmd.AddCommand(configCmd) // Removed to avoid conflict with ConfigCmd from cloud.go
+	RootCmd.AddCommand(configCmd)
 }

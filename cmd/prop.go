@@ -12,6 +12,11 @@ import (
 	"strings"
 	"time"
 
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/widget"
 	"github.com/osmargm1202/orgm/inputs"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -214,7 +219,14 @@ Subcomandos disponibles:
   new     Crear nueva propuesta con interfaz gráfica
   mod     Modificar propuesta existente con interfaz gráfica
   view    Ver y descargar propuestas con interfaz gráfica`,
-	Run: func(cmd *cobra.Command, args []string) {
+    PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+        // Ensure token for all subcommands
+        if _, err := EnsureGCloudIDToken(); err != nil {
+            return fmt.Errorf("error obteniendo token: %w", err)
+        }
+        return nil
+    },
+    Run: func(cmd *cobra.Command, args []string) {
 		baseURL, err := getBaseURL()
 		if err != nil {
 			fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error: "+err.Error()))
@@ -250,6 +262,21 @@ var installCmd = &cobra.Command{
 	},
 }
 
+// fyneCmd represents the fyne command
+var fyneCmd = &cobra.Command{
+	Use:   "fyne",
+	Short: "Gestión de propuestas con interfaz Fyne",
+	Long:  `Comando para crear, modificar y gestionar propuestas usando la API de propuestas con interfaz gráfica Fyne`,
+	Run: func(cmd *cobra.Command, args []string) {
+		baseURL, err := getBaseURL()
+		if err != nil {
+			fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error: "+err.Error()))
+			return
+		}
+		showMainProposalMenuFyne(baseURL)
+	},
+}
+
 
 
 
@@ -257,6 +284,7 @@ func init() {
 	// Add subcommands to prop
 	PropCmd.AddCommand(newCmd)
 	PropCmd.AddCommand(installCmd)
+	PropCmd.AddCommand(fyneCmd)
 }
 
 func getBaseURL() (string, error) {
@@ -319,7 +347,12 @@ func downloadSpecificProposal(baseURL string, proposal Proposal) {
 
 func downloadProposalFile(baseURL, proposalID, fileType, filepath string) error {
 	url := fmt.Sprintf("%s/proposal/%s/%s", baseURL, proposalID, fileType)
-	resp, err := http.Get(url)
+    req, err := http.NewRequest("GET", url, nil)
+    if err != nil {
+        return err
+    }
+    attachAuth(req)
+    resp, err := (&http.Client{}).Do(req)
 	if err != nil {
 		return err
 	}
@@ -379,6 +412,7 @@ func generateHTMLAndPDF(baseURL, proposalID string) {
 	// Generate HTML
 	fmt.Printf("%s\n", inputs.InfoStyle.Render("Generando HTML..."))
 	showNotification("Generando HTML", "Iniciando generación de HTML...")
+    stop := startYadProgress("Manejando Solicitud", "Conectando con la API...\\nProcesando...")
 	
 	htmlRequest := HTMLGenerationRequest{ProposalID: proposalID}
 	jsonData, err := json.Marshal(htmlRequest)
@@ -388,20 +422,23 @@ func generateHTMLAndPDF(baseURL, proposalID string) {
 		return
 	}
 
-	req, err := http.NewRequest("POST", baseURL+"/generate-html", bytes.NewBuffer(jsonData))
+    req, err := http.NewRequest("POST", baseURL+"/generate-html", bytes.NewBuffer(jsonData))
 	if err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al crear solicitud HTML: "+err.Error()))
 		showNotification("Error HTML", "Error al crear solicitud HTML")
-		return
+        stop()
+        return
 	}
 	req.Header.Set("Content-Type", "application/json")
+    attachAuth(req)
 
 	client := &http.Client{}
-	resp, err := client.Do(req)
+    resp, err := client.Do(req)
 	if err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al generar HTML: "+err.Error()))
 		showNotification("Error HTML", "Error al generar HTML")
-		return
+        stop()
+        return
 	}
 	defer resp.Body.Close()
 
@@ -413,7 +450,7 @@ func generateHTMLAndPDF(baseURL, proposalID string) {
 		}
 	}
 
-	// Generate PDF
+    // Generate PDF
 	fmt.Printf("%s\n", inputs.InfoStyle.Render("Generando PDF..."))
 	showNotification("Generando PDF", "Iniciando generación de PDF...")
 	
@@ -425,19 +462,22 @@ func generateHTMLAndPDF(baseURL, proposalID string) {
 		return
 	}
 
-	req, err = http.NewRequest("POST", baseURL+"/generate-pdf", bytes.NewBuffer(jsonData))
+    req, err = http.NewRequest("POST", baseURL+"/generate-pdf", bytes.NewBuffer(jsonData))
 	if err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al crear solicitud PDF: "+err.Error()))
 		showNotification("Error PDF", "Error al crear solicitud PDF")
-		return
+        stop()
+        return
 	}
 	req.Header.Set("Content-Type", "application/json")
+    attachAuth(req)
 
-	resp, err = client.Do(req)
+    resp, err = client.Do(req)
 	if err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al generar PDF: "+err.Error()))
 		showNotification("Error PDF", "Error al generar PDF")
-		return
+        stop()
+        return
 	}
 	defer resp.Body.Close()
 
@@ -448,10 +488,49 @@ func generateHTMLAndPDF(baseURL, proposalID string) {
 			showNotification("PDF Listo", "PDF generado exitosamente")
 		}
 	}
+    stop()
+}
+
+// attachAuth adds the Authorization header using the cached Google ID token
+func attachAuth(req *http.Request) {
+    // Ensure we have a valid token (refresh if needed)
+    token, err := EnsureGCloudIDToken()
+    if err != nil || token == "" {
+        return
+    }
+    req.Header.Set("Authorization", "Bearer "+token)
+}
+
+// startYadProgress launches a pulsating YAD progress dialog and returns a stop function.
+func startYadProgress(title, text string) func() {
+    cmd := exec.Command(
+        "yad",
+        "--progress",
+        "--title="+title,
+        "--text="+text,
+        "--progress-text=",
+        "--pulsate",
+        "--width=400",
+        "--no-buttons",
+    )
+    // Detach stdio so it doesn't block
+    cmd.Stdout = nil
+    cmd.Stderr = nil
+    _ = cmd.Start()
+    return func() {
+        if cmd.Process != nil {
+            _ = cmd.Process.Kill()
+        }
+    }
 }
 
 func getProposals(baseURL string) ([]Proposal, error) {
-	resp, err := http.Get(baseURL + "/proposals")
+    req, err := http.NewRequest("GET", baseURL+"/proposals", nil)
+    if err != nil {
+        return nil, fmt.Errorf("error creando solicitud: %v", err)
+    }
+    attachAuth(req)
+    resp, err := (&http.Client{}).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error de conexión a la API: %v", err)
 	}
@@ -632,18 +711,29 @@ func createProposalFromRequest(baseURL string, request TextGenerationRequest) (P
 	if err != nil {
 		return Proposal{}, fmt.Errorf("error marshaling request: %v", err)
 	}
+    // Show progress while requesting
+    stop := startYadProgress("Manejando Solicitud", "Conectando con la API...\\nProcesando...")
 
-	// Make API call
-	resp, err := http.Post(baseURL+"/generate-text", "application/json", bytes.NewBuffer(jsonData))
-	if err != nil {
-		return Proposal{}, fmt.Errorf("error calling API: %v", err)
-		}
-		defer resp.Body.Close()
+    // Make API call (authenticated)
+    req, err := http.NewRequest("POST", baseURL+"/generate-text", bytes.NewBuffer(jsonData))
+    if err != nil {
+        stop()
+        return Proposal{}, fmt.Errorf("error creating request: %v", err)
+    }
+    req.Header.Set("Content-Type", "application/json")
+    attachAuth(req)
+    resp, err := (&http.Client{}).Do(req)
+    if err != nil {
+        stop()
+        return Proposal{}, fmt.Errorf("error calling API: %v", err)
+    }
+    defer resp.Body.Close()
 
-		if resp.StatusCode != 200 {
-			body, _ := io.ReadAll(resp.Body)
-		return Proposal{}, fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(body))
-	}
+    if resp.StatusCode != 200 {
+        body, _ := io.ReadAll(resp.Body)
+        stop()
+        return Proposal{}, fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(body))
+    }
 
 	var response TextGenerationResponse
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
@@ -663,14 +753,17 @@ func createProposalFromRequest(baseURL string, request TextGenerationRequest) (P
 		SizePDF:   0,
 	}
 
-	return proposal, nil
+    stop()
+    return proposal, nil
 }
 
 
 // showExistingProposalFlow handles the complete flow for existing proposals
 func showExistingProposalFlow(baseURL string) {
-    // Get proposals from API
+    // Show loading while fetching proposals
+    stop := startYadProgress("Manejando Solicitud", "Conectando con la API...\\nProcesando...")
     proposals, err := getProposals(baseURL)
+    stop()
     if err != nil {
         fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error obteniendo propuestas: "+err.Error()))
 			return
@@ -882,6 +975,7 @@ func regenerateProposalGUI(baseURL string, proposal *Proposal) {
     req, err := http.NewRequest("POST", fmt.Sprintf("%s/proposal/%s/regenerate", baseURL, proposal.ID), bytes.NewBuffer(b))
     if err != nil { exec.Command("yad","--error","--text=No se pudo crear la solicitud").Run(); return }
     req.Header.Set("Content-Type", "application/json")
+    attachAuth(req)
     resp, err := (&http.Client{}).Do(req)
     if err != nil { exec.Command("yad","--error","--text=Error de red").Run(); return }
     defer resp.Body.Close()
@@ -921,6 +1015,7 @@ func updateTitleSubtitleGUI(baseURL string, proposal *Proposal) {
     req, err := http.NewRequest("PATCH", fmt.Sprintf("%s/proposal/%s/title-subtitle", baseURL, proposal.ID), bytes.NewBuffer(b))
     if err != nil { exec.Command("yad","--error","--text=No se pudo crear la solicitud").Run(); return }
     req.Header.Set("Content-Type", "application/json")
+    attachAuth(req)
     resp, err := (&http.Client{}).Do(req)
     if err != nil { exec.Command("yad","--error","--text=Error de red").Run(); return }
     defer resp.Body.Close()
@@ -989,12 +1084,13 @@ func modifyProposalGUI(baseURL string, proposal Proposal) {
 		return
 	}
 
-	req, err := http.NewRequest("PUT", baseURL+"/proposal/"+proposal.ID, bytes.NewBuffer(jsonData))
+    req, err := http.NewRequest("PUT", baseURL+"/proposal/"+proposal.ID, bytes.NewBuffer(jsonData))
 	if err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al crear la solicitud: "+err.Error()))
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
+    attachAuth(req)
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -1030,7 +1126,13 @@ exec.Command("yad", "--info", "--title=Éxito", "--text=Propuesta modificada y d
 func showProposalContent(baseURL string, proposal Proposal) {
 	// Download MD content
 	url := fmt.Sprintf("%s/proposal/%s/md", baseURL, proposal.ID)
-	resp, err := http.Get(url)
+    req, err := http.NewRequest("GET", url, nil)
+    if err != nil {
+        fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error creando solicitud: "+err.Error()))
+        return
+    }
+    attachAuth(req)
+    resp, err := (&http.Client{}).Do(req)
 	if err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error descargando contenido: "+err.Error()))
 		return
@@ -1090,6 +1192,7 @@ func showProposalContent(baseURL string, proposal Proposal) {
 func generateHTMLGUI(baseURL string, proposalID string) {
 	fmt.Printf("%s\n", inputs.InfoStyle.Render("Generando HTML..."))
 	showNotification("Generando HTML", "Iniciando generación de HTML...")
+	stop := startYadProgress("Manejando Solicitud", "Conectando con la API...\\nProcesando...")
 
 	htmlRequest := HTMLGenerationRequest{ProposalID: proposalID}
 	jsonData, err := json.Marshal(htmlRequest)
@@ -1099,19 +1202,21 @@ func generateHTMLGUI(baseURL string, proposalID string) {
 		return
 	}
 
-	req, err := http.NewRequest("POST", baseURL+"/generate-html", bytes.NewBuffer(jsonData))
+    req, err := http.NewRequest("POST", baseURL+"/generate-html", bytes.NewBuffer(jsonData))
 	if err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al crear solicitud HTML: "+err.Error()))
 		showNotification("Error HTML", "Error al crear solicitud HTML")
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
+    attachAuth(req)
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al generar HTML: "+err.Error()))
 		showNotification("Error HTML", "Error al generar HTML")
+		stop()
 		return
 	}
 	defer resp.Body.Close()
@@ -1138,6 +1243,7 @@ func generateHTMLGUI(baseURL string, proposalID string) {
 
 	// Show success dialog
 	exec.Command("yad", "--info", "--title=Éxito", "--text=HTML generado y descargado exitosamente").Run()
+	stop()
 }
 
 // generatePDFGUI generates PDF and opens it
@@ -1168,8 +1274,9 @@ func generatePDFGUI(baseURL string, proposalID string) {
 		mode = "normal"
 	}
 
-	fmt.Printf("%s\n", inputs.InfoStyle.Render("Generando PDF en modo: "+mode+"..."))
-	showNotification("Generando PDF", "Iniciando generación de PDF en modo "+mode+"...")
+    fmt.Printf("%s\n", inputs.InfoStyle.Render("Generando PDF en modo: "+mode+"..."))
+    showNotification("Generando PDF", "Iniciando generación de PDF en modo "+mode+"...")
+    stop := startYadProgress("Manejando Solicitud", "Generando PDF...")
 
 	pdfRequest := PDFGenerationRequest{
 		ProposalID: proposalID,
@@ -1182,20 +1289,22 @@ func generatePDFGUI(baseURL string, proposalID string) {
 		return
 	}
 
-	req, err := http.NewRequest("POST", baseURL+"/generate-pdf", bytes.NewBuffer(jsonData))
+    req, err := http.NewRequest("POST", baseURL+"/generate-pdf", bytes.NewBuffer(jsonData))
 	if err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al crear solicitud PDF: "+err.Error()))
 		showNotification("Error PDF", "Error al crear solicitud PDF")
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
+    attachAuth(req)
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
-	if err != nil {
+    if err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al generar PDF: "+err.Error()))
 		showNotification("Error PDF", "Error al generar PDF")
-		return
+        stop()
+        return
 	}
 	defer resp.Body.Close()
 
@@ -1203,7 +1312,8 @@ func generatePDFGUI(baseURL string, proposalID string) {
 		body, _ := io.ReadAll(resp.Body)
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render(fmt.Sprintf("Error del servidor (%d): %s", resp.StatusCode, string(body))))
 		showNotification("Error PDF", fmt.Sprintf("Error del servidor (%d)", resp.StatusCode))
-		return
+        stop()
+        return
 	}
 
 	var pdfResponse PDFGenerationResponse
@@ -1225,7 +1335,8 @@ func generatePDFGUI(baseURL string, proposalID string) {
 	}
 
 	// Open PDF file
-	openFile(filepath)
+    openFile(filepath)
+    stop()
 }
 
 // createNewProposalGUI creates a new proposal using GUI
@@ -1280,6 +1391,7 @@ func createNewProposalGUI(baseURL string) {
 
 	// Send request
 	fmt.Printf("%s\n", inputs.InfoStyle.Render("Creando propuesta..."))
+	stop := startYadProgress("Manejando Solicitud", "Conectando con la API...\\nProcesando...")
 
 	jsonData, err := json.Marshal(request)
 	if err != nil {
@@ -1287,20 +1399,23 @@ func createNewProposalGUI(baseURL string) {
 		return
 	}
 
-	req, err := http.NewRequest("POST", baseURL+"/generate-text", bytes.NewBuffer(jsonData))
+    req, err := http.NewRequest("POST", baseURL+"/generate-text", bytes.NewBuffer(jsonData))
 	if err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al crear la solicitud: "+err.Error()))
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
+    attachAuth(req)
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al enviar la solicitud: "+err.Error()))
+		stop()
 		return
 	}
 	defer resp.Body.Close()
+	stop()
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
@@ -1430,5 +1545,1127 @@ StartupNotify=true
 	fmt.Printf("%s\n", inputs.InfoStyle.Render("📁 Archivo creado en: "+desktopPath))
 	fmt.Printf("%s\n", inputs.InfoStyle.Render("🔍 Busca 'Propuestas' en el menú de aplicaciones"))
 	fmt.Printf("%s\n", inputs.InfoStyle.Render("💡 También puedes ejecutar: "+execPath+" prop"))
+}
+
+// ==============================================
+// FUNCIONES FYNE GUI
+// ==============================================
+
+// showMainProposalMenuFyne shows the main proposal menu using Fyne
+func showMainProposalMenuFyne(baseURL string) {
+	myApp := app.NewWithID("orgm.propuestas")
+
+	myWindow := myApp.NewWindow("Gestor de Propuestas")
+	myWindow.Resize(fyne.NewSize(1400, 900))
+	myWindow.CenterOnScreen()
+
+	// Create main interface content
+	content := createMainInterfaceContent(myApp, myWindow, baseURL)
+	myWindow.SetContent(content)
+
+	myWindow.ShowAndRun()
+}
+
+// ProposalManager holds the state for the proposal manager
+type ProposalManager struct {
+	proposals           []Proposal
+	filteredProposals   []Proposal
+	selectedProposal    *Proposal
+	proposalsList       *widget.List
+	selectedLabel       *widget.Label
+	searchEntry         *widget.Entry
+	baseURL             string
+	window              fyne.Window
+	app                 fyne.App
+}
+
+// Global variable to store the current proposal manager
+var currentProposalManager *ProposalManager
+
+// createMainInterfaceContent creates the unified main interface
+func createMainInterfaceContent(app fyne.App, window fyne.Window, baseURL string) *fyne.Container {
+	// Title
+	title := widget.NewLabel("Gestor de Propuestas")
+	title.TextStyle = fyne.TextStyle{Bold: true}
+	title.Alignment = fyne.TextAlignCenter
+
+	// Search/filter bar
+	searchEntry := widget.NewEntry()
+	searchEntry.SetPlaceHolder("Buscar por título o subtítulo...")
+
+	// Proposals list
+	proposalsList := widget.NewList(
+		func() int {
+			if currentProposalManager != nil {
+				return len(currentProposalManager.filteredProposals)
+			}
+			return 0
+		},
+		func() fyne.CanvasObject {
+			return container.NewHBox(
+				widget.NewLabel("ID"),
+				widget.NewLabel("Título"),
+				widget.NewLabel("Subtítulo"),
+				widget.NewLabel("Creada"),
+			)
+		},
+		func(id widget.ListItemID, obj fyne.CanvasObject) {
+			if currentProposalManager != nil && id < len(currentProposalManager.filteredProposals) {
+				proposal := currentProposalManager.filteredProposals[id]
+				container := obj.(*fyne.Container)
+				container.Objects[0].(*widget.Label).SetText(proposal.ID)
+				container.Objects[1].(*widget.Label).SetText(proposal.Title)
+				container.Objects[2].(*widget.Label).SetText(proposal.Subtitle)
+				container.Objects[3].(*widget.Label).SetText(proposal.CreatedAt.Format("2006-01-02 15:04"))
+			}
+		},
+	)
+
+	proposalsList.Resize(fyne.NewSize(200, 500))
+
+	// List selection handler
+	proposalsList.OnSelected = func(id widget.ListItemID) {
+		if currentProposalManager != nil && id < len(currentProposalManager.filteredProposals) {
+			proposal := currentProposalManager.filteredProposals[id]
+			currentProposalManager.selectedProposal = &proposal
+			currentProposalManager.selectedLabel.SetText(fmt.Sprintf("Seleccionada: %s\n%s", proposal.Title, proposal.Subtitle))
+		}
+	}
+
+	// Selected proposal info
+	selectedProposalLabel := widget.NewLabel("Ninguna propuesta seleccionada")
+	selectedProposalLabel.Alignment = fyne.TextAlignCenter
+
+	// Create proposal manager
+	manager := &ProposalManager{
+		proposals:         []Proposal{},
+		filteredProposals: []Proposal{},
+		selectedProposal:  nil,
+		proposalsList:     proposalsList,
+		selectedLabel:     selectedProposalLabel,
+		searchEntry:       searchEntry,
+		baseURL:           baseURL,
+		window:            window,
+		app:               app,
+	}
+
+	// Store manager in global variable for list callbacks
+	currentProposalManager = manager
+
+	// Action buttons
+	buttonsContainer := manager.createActionButtons()
+
+	// Layout - New proposal button first, then list, then buttons
+	// New proposal button at the top
+	newProposalBtn := widget.NewButton("🆕 Nueva Propuesta", func() {
+		createNewProposalFlowFyne(app, window, baseURL)
+	})
+	newProposalBtn.Resize(fyne.NewSize(200, 40))
+
+	// List panel
+	listPanel := container.NewVBox(
+		widget.NewLabel("Propuestas Existentes:"),
+		searchEntry,
+		proposalsList,
+	)
+
+	listPanel.Resize(fyne.NewSize(200, 500))
+
+
+	// Buttons panel - 2 rows of 5 buttons
+	buttonsPanel := container.NewVBox(
+		selectedProposalLabel,
+		widget.NewSeparator(),
+		buttonsContainer,
+	)
+
+	// Vertical split layout
+	split := container.NewVSplit(listPanel, buttonsPanel)
+	split.Offset = 0.7 // 70% for list, 30% for buttons
+
+	content := container.NewVBox(
+		title,
+		widget.NewSeparator(),
+		container.NewCenter(newProposalBtn),
+		widget.NewSeparator(),
+		split,
+	)
+
+	// Load proposals data
+	manager.loadProposalsData()
+
+	return container.NewPadded(content)
+}
+
+// createActionButtons creates all action buttons in 2 rows of 5
+func (pm *ProposalManager) createActionButtons() *fyne.Container {
+	// Action buttons
+	viewMDBtn := widget.NewButton("📝 Ver MD", func() {
+		if pm.selectedProposal == nil {
+			dialog.ShowInformation("Seleccionar Propuesta", "Por favor selecciona una propuesta primero", pm.window)
+			return
+		}
+		mdPath := getDownloadPath(pm.selectedProposal.ID + ".md")
+		if err := downloadProposalFile(pm.baseURL, pm.selectedProposal.ID, "md", mdPath); err != nil {
+			dialog.ShowError(fmt.Errorf("MD no disponible aún"), pm.window)
+		} else {
+			dialog.ShowInformation("Descarga MD", "MD descargado en carpeta de Descargas", pm.window)
+		}
+		homeDir, _ := os.UserHomeDir()
+		openDirectory(filepath.Join(homeDir, "Downloads"))
+	})
+
+	regenerateBtn := widget.NewButton("🛠️ Regenerar", func() {
+		if pm.selectedProposal == nil {
+			dialog.ShowInformation("Seleccionar Propuesta", "Por favor selecciona una propuesta primero", pm.window)
+			return
+		}
+		regenerateProposalFyne(pm.app, pm.window, pm.baseURL, pm.selectedProposal)
+	})
+
+	updateTitleBtn := widget.NewButton("✍️ Actualizar Título", func() {
+		if pm.selectedProposal == nil {
+			dialog.ShowInformation("Seleccionar Propuesta", "Por favor selecciona una propuesta primero", pm.window)
+			return
+		}
+		updateTitleSubtitleFyne(pm.app, pm.window, pm.baseURL, pm.selectedProposal)
+	})
+
+	viewHTMLBtn := widget.NewButton("🌐 Ver HTML", func() {
+		if pm.selectedProposal == nil {
+			dialog.ShowInformation("Seleccionar Propuesta", "Por favor selecciona una propuesta primero", pm.window)
+			return
+		}
+		downloadPath := getDownloadPath(pm.selectedProposal.ID + ".html")
+		if err := downloadProposalFile(pm.baseURL, pm.selectedProposal.ID, "html", downloadPath); err != nil {
+			dialog.ShowError(fmt.Errorf("HTML no disponible aún"), pm.window)
+		} else {
+			dialog.ShowInformation("Descarga HTML", "HTML descargado en carpeta de Descargas", pm.window)
+		}
+		homeDir, _ := os.UserHomeDir()
+		openDirectory(filepath.Join(homeDir, "Downloads"))
+	})
+
+	generateHTMLBtn := widget.NewButton("🌐 Generar HTML", func() {
+		if pm.selectedProposal == nil {
+			dialog.ShowInformation("Seleccionar Propuesta", "Por favor selecciona una propuesta primero", pm.window)
+			return
+		}
+		generateHTMLFyne(pm.app, pm.window, pm.baseURL, pm.selectedProposal.ID)
+	})
+
+	viewPDFBtn := widget.NewButton("📄 Ver PDF", func() {
+		if pm.selectedProposal == nil {
+			dialog.ShowInformation("Seleccionar Propuesta", "Por favor selecciona una propuesta primero", pm.window)
+			return
+		}
+		downloadPath := getDownloadPath(pm.selectedProposal.ID + ".pdf")
+		if err := downloadProposalFile(pm.baseURL, pm.selectedProposal.ID, "pdf", downloadPath); err != nil {
+			dialog.ShowError(fmt.Errorf("PDF no disponible aún"), pm.window)
+		} else {
+			dialog.ShowInformation("Descarga PDF", "PDF descargado en carpeta de Descargas", pm.window)
+		}
+		homeDir, _ := os.UserHomeDir()
+		openDirectory(filepath.Join(homeDir, "Downloads"))
+	})
+
+	generatePDFBtn := widget.NewButton("📄 Generar PDF", func() {
+		if pm.selectedProposal == nil {
+			dialog.ShowInformation("Seleccionar Propuesta", "Por favor selecciona una propuesta primero", pm.window)
+			return
+		}
+		generatePDFFyne(pm.app, pm.window, pm.baseURL, pm.selectedProposal.ID)
+	})
+
+	modifyBtn := widget.NewButton("✏️ Modificar", func() {
+		if pm.selectedProposal == nil {
+			dialog.ShowInformation("Seleccionar Propuesta", "Por favor selecciona una propuesta primero", pm.window)
+			return
+		}
+		modifyProposalFyne(pm.app, pm.window, pm.baseURL, *pm.selectedProposal)
+	})
+
+	downloadAllBtn := widget.NewButton("📥 Descargar Todo", func() {
+		if pm.selectedProposal == nil {
+			dialog.ShowInformation("Seleccionar Propuesta", "Por favor selecciona una propuesta primero", pm.window)
+			return
+		}
+		downloadSpecificProposal(pm.baseURL, *pm.selectedProposal)
+		dialog.ShowInformation("Descarga", "Archivos descargados en carpeta de Descargas", pm.window)
+	})
+
+	refreshBtn := widget.NewButton("🔄 Actualizar Lista", func() {
+		pm.loadProposalsData()
+	})
+
+	// First row of 5 buttons
+	row1 := container.NewHBox(
+		viewMDBtn,
+		regenerateBtn,
+		updateTitleBtn,
+		viewHTMLBtn,
+		generateHTMLBtn,
+	)
+
+	// Second row of 5 buttons
+	row2 := container.NewHBox(
+		viewPDFBtn,
+		generatePDFBtn,
+		modifyBtn,
+		downloadAllBtn,
+		refreshBtn,
+	)
+
+	return container.NewVBox(
+		widget.NewLabel("Acciones con propuesta seleccionada:"),
+		row1,
+		row2,
+	)
+}
+
+// loadProposalsData loads proposals and sets up the list
+func (pm *ProposalManager) loadProposalsData() {
+	// Show loading
+	pm.selectedLabel.SetText("Cargando propuestas...")
+
+	go func() {
+		proposals, err := getProposals(pm.baseURL)
+		if err != nil {
+			pm.selectedLabel.SetText("Error cargando propuestas: " + err.Error())
+			return
+		}
+
+		pm.proposals = proposals
+		pm.filteredProposals = proposals
+
+		if len(proposals) == 0 {
+			pm.selectedLabel.SetText("No hay propuestas disponibles")
+			pm.proposalsList.Refresh()
+			return
+		}
+
+		// Debug: Log the number of proposals
+		fmt.Printf("DEBUG: Cargadas %d propuestas\n", len(proposals))
+		for i, prop := range proposals {
+			fmt.Printf("DEBUG: Propuesta %d: ID=%s, Title=%s\n", i, prop.ID, prop.Title)
+		}
+
+		// Set up search filter
+		pm.searchEntry.OnChanged = func(text string) {
+			pm.filteredProposals = pm.filterProposals(text)
+			pm.proposalsList.Refresh()
+		}
+
+		pm.proposalsList.Refresh()
+		pm.selectedLabel.SetText(fmt.Sprintf("Cargadas %d propuestas. Selecciona una para ver acciones.", len(proposals)))
+	}()
+}
+
+// filterProposals filters proposals based on search text
+func (pm *ProposalManager) filterProposals(searchText string) []Proposal {
+	if searchText == "" {
+		return pm.proposals
+	}
+	
+	searchText = strings.ToLower(searchText)
+	var filtered []Proposal
+	
+	for _, proposal := range pm.proposals {
+		if strings.Contains(strings.ToLower(proposal.Title), searchText) ||
+		   strings.Contains(strings.ToLower(proposal.Subtitle), searchText) {
+			filtered = append(filtered, proposal)
+		}
+	}
+	
+	return filtered
+}
+
+// createNewProposalFlowFyne handles the complete flow for creating new proposals with Fyne
+func createNewProposalFlowFyne(app fyne.App, parent fyne.Window, baseURL string) {
+	// Create new window for form
+	formWindow := app.NewWindow("Nueva Propuesta")
+	formWindow.Resize(fyne.NewSize(600, 500))
+	formWindow.CenterOnScreen()
+
+	// Form fields
+	titleEntry := widget.NewEntry()
+	titleEntry.SetText("Propuesta de Servicios")
+	titleEntry.SetPlaceHolder("Ingresa el título")
+
+	subtitleEntry := widget.NewEntry()
+	subtitleEntry.SetPlaceHolder("Ingresa el subtítulo")
+
+	promptEntry := widget.NewMultiLineEntry()
+	promptEntry.SetPlaceHolder("Escribe aquí tu prompt...")
+	promptEntry.Resize(fyne.NewSize(0, 200))
+
+	// Form layout
+	form := &widget.Form{
+		Items: []*widget.FormItem{
+			{Text: "Título:", Widget: titleEntry},
+			{Text: "Subtítulo:", Widget: subtitleEntry},
+			{Text: "Prompt:", Widget: promptEntry},
+		},
+	}
+
+	// Buttons
+	createBtn := widget.NewButton("Crear Propuesta", func() {
+		title := strings.TrimSpace(titleEntry.Text)
+		subtitle := strings.TrimSpace(subtitleEntry.Text)
+		prompt := strings.TrimSpace(promptEntry.Text)
+
+		if prompt == "" {
+			dialog.ShowError(fmt.Errorf("el prompt no puede estar vacío"), formWindow)
+			return
+		}
+
+		// Create request
+		request := TextGenerationRequest{
+			Title:    title,
+			Subtitle: subtitle,
+			Prompt:   prompt,
+			Model:    "gpt-5-chat-latest",
+		}
+
+		// Show generation menu
+		showGenerationMenuFyne(app, formWindow, baseURL, request)
+	})
+
+	cancelBtn := widget.NewButton("Cancelar", func() {
+		formWindow.Close()
+	})
+
+	// Layout
+	content := container.NewVBox(
+		widget.NewLabel("Completa los datos de la nueva propuesta:"),
+		widget.NewSeparator(),
+		form,
+		widget.NewSeparator(),
+		container.NewHBox(cancelBtn, createBtn),
+	)
+
+	formWindow.SetContent(container.NewPadded(content))
+	formWindow.Show()
+}
+
+// showGenerationMenuFyne shows options for generating documents after creating proposal
+func showGenerationMenuFyne(app fyne.App, parent fyne.Window, baseURL string, request TextGenerationRequest) {
+	genWindow := app.NewWindow("Generar Documentos")
+	genWindow.Resize(fyne.NewSize(500, 400))
+	genWindow.CenterOnScreen()
+
+	title := widget.NewLabel("¿Qué documento quieres generar?")
+	title.Alignment = fyne.TextAlignCenter
+
+	// Buttons
+	mdBtn := widget.NewButton("📝 Solo Texto (MD)", func() {
+		proposal, err := createProposalFromRequest(baseURL, request)
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("error creando propuesta: %v", err), genWindow)
+			return
+		}
+		mdPath := getDownloadPath(proposal.ID + ".md")
+		_ = downloadProposalFile(baseURL, proposal.ID, "md", mdPath)
+		homeDir, _ := os.UserHomeDir()
+		openDirectory(filepath.Join(homeDir, "Downloads"))
+		genWindow.Close()
+		parent.Close()
+	})
+
+	htmlBtn := widget.NewButton("🌐 Generar HTML", func() {
+		proposal, err := createProposalFromRequest(baseURL, request)
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("error creando propuesta: %v", err), genWindow)
+			return
+		}
+		generateHTMLAndPDFFyne(app, genWindow, baseURL, proposal.ID)
+		genWindow.Close()
+		parent.Close()
+	})
+
+	pdfBtn := widget.NewButton("📄 Generar PDF", func() {
+		proposal, err := createProposalFromRequest(baseURL, request)
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("error creando propuesta: %v", err), genWindow)
+			return
+		}
+		generateHTMLAndPDFFyne(app, genWindow, baseURL, proposal.ID)
+		genWindow.Close()
+		parent.Close()
+	})
+
+	cancelBtn := widget.NewButton("🏠 Volver al Menú Principal", func() {
+		genWindow.Close()
+		parent.Close()
+	})
+
+	// Layout
+	content := container.NewVBox(
+		title,
+		widget.NewSeparator(),
+		container.NewCenter(container.NewVBox(mdBtn, htmlBtn, pdfBtn)),
+		widget.NewSeparator(),
+		container.NewCenter(cancelBtn),
+	)
+
+	genWindow.SetContent(container.NewPadded(content))
+	genWindow.Show()
+}
+
+// showExistingProposalFlowFyne handles the complete flow for existing proposals with Fyne
+func showExistingProposalFlowFyne(app fyne.App, parent fyne.Window, baseURL string) {
+	// Show loading dialog
+	loadingDialog := dialog.NewProgressInfinite("Cargando", "Obteniendo propuestas...", parent)
+	loadingDialog.Show()
+
+	// Fetch proposals in goroutine
+	go func() {
+		proposals, err := getProposals(baseURL)
+		loadingDialog.Hide()
+
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("error obteniendo propuestas: %v", err), parent)
+			return
+		}
+
+		if len(proposals) == 0 {
+			dialog.ShowInformation("Sin propuestas", "No hay propuestas disponibles", parent)
+			return
+		}
+
+		// Show proposals list
+		showProposalsListFyne(app, parent, baseURL, proposals)
+	}()
+}
+
+// showProposalsListFyne shows a list of proposals for selection
+func showProposalsListFyne(app fyne.App, parent fyne.Window, baseURL string, proposals []Proposal) {
+	listWindow := app.NewWindow("Propuestas Existentes")
+	listWindow.Resize(fyne.NewSize(900, 600))
+	listWindow.CenterOnScreen()
+
+	// Create list widget
+	list := widget.NewList(
+		func() int {
+			return len(proposals)
+		},
+		func() fyne.CanvasObject {
+			return container.NewHBox(
+				widget.NewLabel("ID"),
+				widget.NewLabel("Título"),
+				widget.NewLabel("Subtítulo"),
+				widget.NewLabel("Creada"),
+			)
+		},
+		func(id widget.ListItemID, obj fyne.CanvasObject) {
+			proposal := proposals[id]
+			container := obj.(*fyne.Container)
+			container.Objects[0].(*widget.Label).SetText(proposal.ID)
+			container.Objects[1].(*widget.Label).SetText(proposal.Title)
+			container.Objects[2].(*widget.Label).SetText(proposal.Subtitle)
+			container.Objects[3].(*widget.Label).SetText(proposal.CreatedAt.Format("2006-01-02 15:04"))
+		},
+	)
+
+	// Selection handler
+	list.OnSelected = func(id widget.ListItemID) {
+		selectedProposal := proposals[id]
+		showProposalManagementFyne(app, listWindow, baseURL, selectedProposal)
+	}
+
+	// Layout
+	content := container.NewVBox(
+		widget.NewLabel("Selecciona una propuesta:"),
+		widget.NewSeparator(),
+		list,
+	)
+
+	listWindow.SetContent(container.NewPadded(content))
+	listWindow.Show()
+}
+
+// showProposalManagementFyne shows the management interface for a specific proposal
+func showProposalManagementFyne(app fyne.App, parent fyne.Window, baseURL string, proposal Proposal) {
+	mgmtWindow := app.NewWindow("Gestionar: " + proposal.Title)
+	mgmtWindow.Resize(fyne.NewSize(500, 600))
+	mgmtWindow.CenterOnScreen()
+
+	title := widget.NewLabel("Selecciona una acción:")
+	title.Alignment = fyne.TextAlignCenter
+
+	// Create action buttons based on available documents
+	var buttons []fyne.CanvasObject
+
+	// Always available actions
+	buttons = append(buttons, widget.NewButton("📝 Ver propuesta (MD)", func() {
+		mdPath := getDownloadPath(proposal.ID + ".md")
+		if err := downloadProposalFile(baseURL, proposal.ID, "md", mdPath); err != nil {
+			dialog.ShowError(fmt.Errorf("MD no disponible aún"), mgmtWindow)
+		} else {
+			dialog.ShowInformation("Descarga MD", "MD descargado en carpeta de Descargas", mgmtWindow)
+		}
+		homeDir, _ := os.UserHomeDir()
+		openDirectory(filepath.Join(homeDir, "Downloads"))
+	}))
+
+	buttons = append(buttons, widget.NewButton("🛠️ Regenerar (título/subtítulo/prompt)", func() {
+		regenerateProposalFyne(app, mgmtWindow, baseURL, &proposal)
+	}))
+
+	buttons = append(buttons, widget.NewButton("✍️ Cambiar solo título/subtítulo", func() {
+		updateTitleSubtitleFyne(app, mgmtWindow, baseURL, &proposal)
+	}))
+
+	// HTML actions
+	if proposal.HTMLURL != "" {
+		buttons = append(buttons, widget.NewButton("🌐 Ver HTML", func() {
+			downloadPath := getDownloadPath(proposal.ID + ".html")
+			if err := downloadProposalFile(baseURL, proposal.ID, "html", downloadPath); err != nil {
+				dialog.ShowError(fmt.Errorf("HTML no disponible aún"), mgmtWindow)
+			} else {
+				dialog.ShowInformation("Descarga HTML", "HTML descargado en carpeta de Descargas", mgmtWindow)
+			}
+			homeDir, _ := os.UserHomeDir()
+			openDirectory(filepath.Join(homeDir, "Downloads"))
+		}))
+		buttons = append(buttons, widget.NewButton("🔁 Regenerar HTML", func() {
+			generateHTMLFyne(app, mgmtWindow, baseURL, proposal.ID)
+		}))
+	} else {
+		buttons = append(buttons, widget.NewButton("🌐 Generar HTML", func() {
+			generateHTMLFyne(app, mgmtWindow, baseURL, proposal.ID)
+		}))
+	}
+
+	// PDF actions
+	if proposal.PDFURL != "" {
+		buttons = append(buttons, widget.NewButton("📄 Ver PDF", func() {
+			downloadPath := getDownloadPath(proposal.ID + ".pdf")
+			if err := downloadProposalFile(baseURL, proposal.ID, "pdf", downloadPath); err != nil {
+				dialog.ShowError(fmt.Errorf("PDF no disponible aún"), mgmtWindow)
+			} else {
+				dialog.ShowInformation("Descarga PDF", "PDF descargado en carpeta de Descargas", mgmtWindow)
+			}
+			homeDir, _ := os.UserHomeDir()
+			openDirectory(filepath.Join(homeDir, "Downloads"))
+		}))
+		buttons = append(buttons, widget.NewButton("🔁 Regenerar PDF", func() {
+			generatePDFFyne(app, mgmtWindow, baseURL, proposal.ID)
+		}))
+	} else {
+		buttons = append(buttons, widget.NewButton("📄 Generar PDF", func() {
+			generatePDFFyne(app, mgmtWindow, baseURL, proposal.ID)
+		}))
+	}
+
+	// Additional actions
+	buttons = append(buttons, widget.NewButton("✏️ Modificar propuesta", func() {
+		modifyProposalFyne(app, mgmtWindow, baseURL, proposal)
+	}))
+
+	buttons = append(buttons, widget.NewButton("📥 Descargar archivos", func() {
+		downloadSpecificProposal(baseURL, proposal)
+		dialog.ShowInformation("Descarga", "Archivos descargados en carpeta de Descargas", mgmtWindow)
+	}))
+
+	buttons = append(buttons, widget.NewButton("🏠 Volver al Menú Principal", func() {
+		mgmtWindow.Close()
+		parent.Close()
+	}))
+
+	// Layout
+	content := container.NewVBox(
+		title,
+		widget.NewSeparator(),
+		container.NewGridWithColumns(1, buttons...),
+	)
+
+	mgmtWindow.SetContent(container.NewPadded(content))
+	mgmtWindow.Show()
+}
+
+// regenerateProposalFyne shows form to regenerate proposal
+func regenerateProposalFyne(app fyne.App, parent fyne.Window, baseURL string, proposal *Proposal) {
+	formWindow := app.NewWindow("Regenerar Propuesta: " + proposal.Title)
+	formWindow.Resize(fyne.NewSize(700, 500))
+	formWindow.CenterOnScreen()
+
+	// Form fields with current values
+	titleEntry := widget.NewEntry()
+	titleEntry.SetText(proposal.Title)
+
+	subtitleEntry := widget.NewEntry()
+	subtitleEntry.SetText(proposal.Subtitle)
+
+	promptEntry := widget.NewMultiLineEntry()
+	promptEntry.SetText(proposal.Prompt)
+	promptEntry.Resize(fyne.NewSize(0, 200))
+
+	// Form
+	form := &widget.Form{
+		Items: []*widget.FormItem{
+			{Text: "Título:", Widget: titleEntry},
+			{Text: "Subtítulo:", Widget: subtitleEntry},
+			{Text: "Prompt:", Widget: promptEntry},
+		},
+	}
+
+	// Buttons
+	regenerateBtn := widget.NewButton("Regenerar", func() {
+		title := strings.TrimSpace(titleEntry.Text)
+		subtitle := strings.TrimSpace(subtitleEntry.Text)
+		prompt := strings.TrimSpace(promptEntry.Text)
+
+		body := map[string]string{
+			"title":   title,
+			"subtitle": subtitle,
+			"prompt":  prompt,
+			"model":   "gpt-5-chat-latest",
+		}
+		b, _ := json.Marshal(body)
+		req, err := http.NewRequest("POST", fmt.Sprintf("%s/proposal/%s/regenerate", baseURL, proposal.ID), bytes.NewBuffer(b))
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("no se pudo crear la solicitud"), formWindow)
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		attachAuth(req)
+		resp, err := (&http.Client{}).Do(req)
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("error de red"), formWindow)
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			dialog.ShowError(fmt.Errorf("fallo al regenerar: %s", string(bodyBytes)), formWindow)
+			return
+		}
+
+		// Update local proposal state
+		proposal.Title = title
+		proposal.Subtitle = subtitle
+		proposal.Prompt = prompt
+		proposal.HTMLURL = ""
+		proposal.PDFURL = ""
+
+		dialog.ShowInformation("Éxito", "Texto regenerado. Generando HTML y PDF...", formWindow)
+		generateHTMLAndPDFFyne(app, formWindow, baseURL, proposal.ID)
+		formWindow.Close()
+	})
+
+	cancelBtn := widget.NewButton("Cancelar", func() {
+		formWindow.Close()
+	})
+
+	// Layout
+	content := container.NewVBox(
+		widget.NewLabel("Edita los campos para regenerar el contenido (MD se reemplaza)"),
+		widget.NewSeparator(),
+		form,
+		widget.NewSeparator(),
+		container.NewHBox(cancelBtn, regenerateBtn),
+	)
+
+	formWindow.SetContent(container.NewPadded(content))
+	formWindow.Show()
+}
+
+// updateTitleSubtitleFyne shows form to update title and subtitle
+func updateTitleSubtitleFyne(app fyne.App, parent fyne.Window, baseURL string, proposal *Proposal) {
+	formWindow := app.NewWindow("Actualizar Título/Subtítulo: " + proposal.Title)
+	formWindow.Resize(fyne.NewSize(600, 300))
+	formWindow.CenterOnScreen()
+
+	// Form fields with current values
+	titleEntry := widget.NewEntry()
+	titleEntry.SetText(proposal.Title)
+
+	subtitleEntry := widget.NewEntry()
+	subtitleEntry.SetText(proposal.Subtitle)
+
+	// Form
+	form := &widget.Form{
+		Items: []*widget.FormItem{
+			{Text: "Título:", Widget: titleEntry},
+			{Text: "Subtítulo:", Widget: subtitleEntry},
+		},
+	}
+
+	// Buttons
+	updateBtn := widget.NewButton("Actualizar", func() {
+		title := strings.TrimSpace(titleEntry.Text)
+		subtitle := strings.TrimSpace(subtitleEntry.Text)
+
+		body := map[string]string{
+			"title":    title,
+			"subtitle": subtitle,
+		}
+		b, _ := json.Marshal(body)
+		req, err := http.NewRequest("PATCH", fmt.Sprintf("%s/proposal/%s/title-subtitle", baseURL, proposal.ID), bytes.NewBuffer(b))
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("no se pudo crear la solicitud"), formWindow)
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		attachAuth(req)
+		resp, err := (&http.Client{}).Do(req)
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("error de red"), formWindow)
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			dialog.ShowError(fmt.Errorf("fallo al actualizar: %s", string(bodyBytes)), formWindow)
+			return
+		}
+
+		proposal.Title = title
+		proposal.Subtitle = subtitle
+		dialog.ShowInformation("Éxito", "Título/Subtítulo actualizados. Si deseas verlos en HTML/PDF, vuelve a generarlos.", formWindow)
+		formWindow.Close()
+	})
+
+	cancelBtn := widget.NewButton("Cancelar", func() {
+		formWindow.Close()
+	})
+
+	// Layout
+	content := container.NewVBox(
+		form,
+		widget.NewSeparator(),
+		container.NewHBox(cancelBtn, updateBtn),
+	)
+
+	formWindow.SetContent(container.NewPadded(content))
+	formWindow.Show()
+}
+
+// modifyProposalFyne shows form to modify proposal
+func modifyProposalFyne(app fyne.App, parent fyne.Window, baseURL string, proposal Proposal) {
+	formWindow := app.NewWindow("Modificar Propuesta: " + proposal.Title)
+	formWindow.Resize(fyne.NewSize(600, 500))
+	formWindow.CenterOnScreen()
+
+	// Form fields
+	titleEntry := widget.NewEntry()
+	titleEntry.SetText(proposal.Title)
+
+	subtitleEntry := widget.NewEntry()
+	subtitleEntry.SetText(proposal.Subtitle)
+
+	promptEntry := widget.NewMultiLineEntry()
+	promptEntry.SetText(proposal.Title + " modificada")
+	promptEntry.Resize(fyne.NewSize(0, 200))
+
+	// Form
+	form := &widget.Form{
+		Items: []*widget.FormItem{
+			{Text: "Título:", Widget: titleEntry},
+			{Text: "Subtítulo:", Widget: subtitleEntry},
+			{Text: "Prompt:", Widget: promptEntry},
+		},
+	}
+
+	// Buttons
+	modifyBtn := widget.NewButton("Modificar", func() {
+		title := strings.TrimSpace(titleEntry.Text)
+		subtitle := strings.TrimSpace(subtitleEntry.Text)
+		prompt := strings.TrimSpace(promptEntry.Text)
+
+		if prompt == "" {
+			dialog.ShowError(fmt.Errorf("el prompt no puede estar vacío"), formWindow)
+			return
+		}
+
+		// Create request
+		request := TextGenerationRequest{
+			Title:    title,
+			Subtitle: subtitle,
+			Prompt:   prompt,
+			Model:    "gpt-5-chat-latest",
+		}
+
+		// Send modification request
+		jsonData, err := json.Marshal(request)
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("error al serializar la solicitud: %v", err), formWindow)
+			return
+		}
+
+		req, err := http.NewRequest("PUT", baseURL+"/proposal/"+proposal.ID, bytes.NewBuffer(jsonData))
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("error al crear la solicitud: %v", err), formWindow)
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		attachAuth(req)
+
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("error al enviar la solicitud: %v", err), formWindow)
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != 200 {
+			body, _ := io.ReadAll(resp.Body)
+			dialog.ShowError(fmt.Errorf("error del servidor (%d): %s", resp.StatusCode, string(body)), formWindow)
+			return
+		}
+
+		var response ModifyProposalResponse
+		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+			dialog.ShowError(fmt.Errorf("error al decodificar la respuesta: %v", err), formWindow)
+			return
+		}
+
+		dialog.ShowInformation("Éxito", "Propuesta modificada y documentos generados", formWindow)
+		generateHTMLAndPDFFyne(app, formWindow, baseURL, proposal.ID)
+		formWindow.Close()
+	})
+
+	cancelBtn := widget.NewButton("Cancelar", func() {
+		formWindow.Close()
+	})
+
+	// Layout
+	content := container.NewVBox(
+		widget.NewLabel("Ingresa el nuevo prompt:"),
+		widget.NewSeparator(),
+		form,
+		widget.NewSeparator(),
+		container.NewHBox(cancelBtn, modifyBtn),
+	)
+
+	formWindow.SetContent(container.NewPadded(content))
+	formWindow.Show()
+}
+
+// generateHTMLFyne generates HTML with Fyne interface
+func generateHTMLFyne(app fyne.App, parent fyne.Window, baseURL string, proposalID string) {
+	// Show progress dialog
+	progressDialog := dialog.NewProgressInfinite("Generando HTML", "Conectando con la API...", parent)
+	progressDialog.Show()
+
+	go func() {
+		htmlRequest := HTMLGenerationRequest{ProposalID: proposalID}
+		jsonData, err := json.Marshal(htmlRequest)
+		if err != nil {
+			progressDialog.Hide()
+			dialog.ShowError(fmt.Errorf("error al serializar solicitud HTML: %v", err), parent)
+			return
+		}
+
+		req, err := http.NewRequest("POST", baseURL+"/generate-html", bytes.NewBuffer(jsonData))
+		if err != nil {
+			progressDialog.Hide()
+			dialog.ShowError(fmt.Errorf("error al crear solicitud HTML: %v", err), parent)
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		attachAuth(req)
+
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			progressDialog.Hide()
+			dialog.ShowError(fmt.Errorf("error al generar HTML: %v", err), parent)
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != 200 {
+			body, _ := io.ReadAll(resp.Body)
+			progressDialog.Hide()
+			dialog.ShowError(fmt.Errorf("error del servidor (%d): %s", resp.StatusCode, string(body)), parent)
+			return
+		}
+
+		var htmlResponse HTMLGenerationResponse
+		if err := json.NewDecoder(resp.Body).Decode(&htmlResponse); err != nil {
+			progressDialog.Hide()
+			dialog.ShowError(fmt.Errorf("error al decodificar respuesta HTML: %v", err), parent)
+			return
+		}
+
+		progressDialog.Hide()
+		dialog.ShowInformation("Éxito", "HTML generado exitosamente", parent)
+
+		// Download HTML file
+		downloadProposalFile(baseURL, proposalID, "html", getDownloadPath(proposalID+".html"))
+	}()
+}
+
+// generatePDFFyne generates PDF with Fyne interface
+func generatePDFFyne(app fyne.App, parent fyne.Window, baseURL string, proposalID string) {
+	// Create mode selection window
+	modeWindow := app.NewWindow("Generar PDF")
+	modeWindow.Resize(fyne.NewSize(400, 200))
+	modeWindow.CenterOnScreen()
+	
+	modeSelect := widget.NewSelect([]string{"normal", "dapec", "oscuro"}, func(value string) {
+		modeWindow.Close()
+		
+		// Show progress dialog
+		progressDialog := dialog.NewProgressInfinite("Generando PDF", "Generando PDF en modo "+value+"...", parent)
+		progressDialog.Show()
+
+		go func() {
+			pdfRequest := PDFGenerationRequest{
+				ProposalID: proposalID,
+				Modo:       value,
+			}
+			jsonData, err := json.Marshal(pdfRequest)
+			if err != nil {
+				progressDialog.Hide()
+				dialog.ShowError(fmt.Errorf("error al serializar solicitud PDF: %v", err), parent)
+				return
+			}
+
+			req, err := http.NewRequest("POST", baseURL+"/generate-pdf", bytes.NewBuffer(jsonData))
+			if err != nil {
+				progressDialog.Hide()
+				dialog.ShowError(fmt.Errorf("error al crear solicitud PDF: %v", err), parent)
+				return
+			}
+			req.Header.Set("Content-Type", "application/json")
+			attachAuth(req)
+
+			client := &http.Client{}
+			resp, err := client.Do(req)
+			if err != nil {
+				progressDialog.Hide()
+				dialog.ShowError(fmt.Errorf("error al generar PDF: %v", err), parent)
+				return
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != 200 {
+				body, _ := io.ReadAll(resp.Body)
+				progressDialog.Hide()
+				dialog.ShowError(fmt.Errorf("error del servidor (%d): %s", resp.StatusCode, string(body)), parent)
+				return
+			}
+
+			var pdfResponse PDFGenerationResponse
+			if err := json.NewDecoder(resp.Body).Decode(&pdfResponse); err != nil {
+				progressDialog.Hide()
+				dialog.ShowError(fmt.Errorf("error al decodificar respuesta PDF: %v", err), parent)
+				return
+			}
+
+			progressDialog.Hide()
+			dialog.ShowInformation("Éxito", "PDF generado exitosamente", parent)
+
+			// Download PDF file
+			filepath := getDownloadPath(proposalID + ".pdf")
+			if err := downloadProposalFile(baseURL, proposalID, "pdf", filepath); err != nil {
+				dialog.ShowError(fmt.Errorf("error al descargar PDF: %v", err), parent)
+				return
+			}
+
+			// Open PDF file
+			openFile(filepath)
+		}()
+	})
+	modeSelect.SetSelected("normal")
+
+	content := container.NewVBox(
+		widget.NewLabel("Selecciona el modo de impresión del PDF:"),
+		modeSelect,
+		widget.NewButton("Generar", func() {
+			if modeSelect.Selected != "" {
+				modeSelect.OnChanged(modeSelect.Selected)
+			}
+		}),
+		widget.NewButton("Cancelar", func() {
+			modeWindow.Close()
+		}),
+	)
+	
+	modeWindow.SetContent(container.NewPadded(content))
+	modeWindow.Show()
+}
+
+// generateHTMLAndPDFFyne generates both HTML and PDF
+func generateHTMLAndPDFFyne(app fyne.App, parent fyne.Window, baseURL string, proposalID string) {
+	// Show progress dialog
+	progressDialog := dialog.NewProgressInfinite("Generando Documentos", "Generando HTML y PDF...", parent)
+	progressDialog.Show()
+
+	go func() {
+		// Generate HTML
+		htmlRequest := HTMLGenerationRequest{ProposalID: proposalID}
+		jsonData, err := json.Marshal(htmlRequest)
+		if err != nil {
+			progressDialog.Hide()
+			dialog.ShowError(fmt.Errorf("error al serializar solicitud HTML: %v", err), parent)
+			return
+		}
+
+		req, err := http.NewRequest("POST", baseURL+"/generate-html", bytes.NewBuffer(jsonData))
+		if err != nil {
+			progressDialog.Hide()
+			dialog.ShowError(fmt.Errorf("error al crear solicitud HTML: %v", err), parent)
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		attachAuth(req)
+
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			progressDialog.Hide()
+			dialog.ShowError(fmt.Errorf("error al generar HTML: %v", err), parent)
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == 200 {
+			var htmlResponse HTMLGenerationResponse
+			if err := json.NewDecoder(resp.Body).Decode(&htmlResponse); err == nil {
+				// HTML generated successfully
+			}
+		}
+
+		// Generate PDF
+		pdfRequest := PDFGenerationRequest{ProposalID: proposalID}
+		jsonData, err = json.Marshal(pdfRequest)
+		if err != nil {
+			progressDialog.Hide()
+			dialog.ShowError(fmt.Errorf("error al serializar solicitud PDF: %v", err), parent)
+			return
+		}
+
+		req, err = http.NewRequest("POST", baseURL+"/generate-pdf", bytes.NewBuffer(jsonData))
+		if err != nil {
+			progressDialog.Hide()
+			dialog.ShowError(fmt.Errorf("error al crear solicitud PDF: %v", err), parent)
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		attachAuth(req)
+
+		resp, err = client.Do(req)
+		if err != nil {
+			progressDialog.Hide()
+			dialog.ShowError(fmt.Errorf("error al generar PDF: %v", err), parent)
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == 200 {
+			var pdfResponse PDFGenerationResponse
+			if err := json.NewDecoder(resp.Body).Decode(&pdfResponse); err == nil {
+				// PDF generated successfully
+			}
+		}
+
+		progressDialog.Hide()
+		dialog.ShowInformation("Éxito", "HTML y PDF generados exitosamente", parent)
+	}()
 }
 

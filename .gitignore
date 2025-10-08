@@ -1,6 +1,6 @@
 temp
 bd
-
+node_modules
 
 *.toml
 cmd/adm/pago.py

@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestor de Propuestas</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        .panel {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            backdrop-filter: blur(10px);
+        }
+
+        .panel h2 {
+            color: #4a5568;
+            margin-bottom: 20px;
+            font-size: 1.5rem;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 10px;
+        }
+
+        .search-container {
+            margin-bottom: 20px;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s ease;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .proposals-list {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+        }
+
+        .proposal-item {
+            padding: 15px;
+            border-bottom: 1px solid #f1f5f9;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+
+        .proposal-item:hover {
+            background-color: #f8fafc;
+        }
+
+        .proposal-item.selected {
+            background-color: #e6fffa;
+            border-left: 4px solid #38b2ac;
+        }
+
+        .proposal-title {
+            font-weight: bold;
+            color: #2d3748;
+            margin-bottom: 5px;
+        }
+
+        .proposal-subtitle {
+            color: #718096;
+            font-size: 0.9rem;
+            margin-bottom: 5px;
+        }
+
+        .proposal-date {
+            color: #a0aec0;
+            font-size: 0.8rem;
+        }
+
+        .actions-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .selected-info {
+            background: #f7fafc;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #4299e1;
+        }
+
+        .selected-info h3 {
+            color: #2d3748;
+            margin-bottom: 10px;
+        }
+
+        .selected-info p {
+            color: #4a5568;
+            line-height: 1.5;
+        }
+
+        .btn {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+            text-align: center;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #e2e8f0;
+            color: #4a5568;
+        }
+
+        .btn-secondary:hover {
+            background: #cbd5e0;
+        }
+
+        .btn-success {
+            background: #48bb78;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #38a169;
+        }
+
+        .btn-warning {
+            background: #ed8936;
+            color: white;
+        }
+
+        .btn-warning:hover {
+            background: #dd6b20;
+        }
+
+        .btn-danger {
+            background: #f56565;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #e53e3e;
+        }
+
+        .btn-info {
+            background: #4299e1;
+            color: white;
+        }
+
+        .btn-info:hover {
+            background: #3182ce;
+        }
+
+        .btn-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #4a5568;
+        }
+
+        .form-group input,
+        .form-group textarea {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e2e8f0;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.3s ease;
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            backdrop-filter: blur(5px);
+        }
+
+        .modal-content {
+            background-color: white;
+            margin: 5% auto;
+            padding: 30px;
+            border-radius: 15px;
+            width: 90%;
+            max-width: 600px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            animation: modalSlideIn 0.3s ease;
+        }
+
+        @keyframes modalSlideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-50px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        .modal-header h2 {
+            color: #2d3748;
+            margin: 0;
+        }
+
+        .close {
+            color: #a0aec0;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: color 0.3s ease;
+        }
+
+        .close:hover {
+            color: #4a5568;
+        }
+
+        .modal-footer {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 2px solid #e2e8f0;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .status-message {
+            padding: 10px 15px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-weight: 500;
+        }
+
+        .status-success {
+            background-color: #f0fff4;
+            color: #22543d;
+            border: 1px solid #9ae6b4;
+        }
+
+        .status-error {
+            background-color: #fed7d7;
+            color: #742a2a;
+            border: 1px solid #feb2b2;
+        }
+
+        .status-info {
+            background-color: #ebf8ff;
+            color: #2a4365;
+            border: 1px solid #90cdf4;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .fade-in {
+            animation: fadeIn 0.5s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+            
+            .btn-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎯 Gestor de Propuestas</h1>
+            <p>Gestiona tus propuestas de manera eficiente</p>
+        </div>
+
+        <div class="main-content">
+            <!-- Panel de Lista de Propuestas -->
+            <div class="panel">
+                <h2>📋 Propuestas Existentes</h2>
+                
+                <div class="search-container">
+                    <input type="text" id="searchInput" class="search-input" placeholder="Buscar por título o subtítulo...">
+                </div>
+
+                <div class="proposals-list" id="proposalsList">
+                    <div class="loading" id="loadingProposals">
+                        <div class="spinner"></div>
+                        <p>Cargando propuestas...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Panel de Acciones -->
+            <div class="panel">
+                <h2>⚡ Acciones</h2>
+                
+                <div class="selected-info" id="selectedInfo">
+                    <h3>Ninguna propuesta seleccionada</h3>
+                    <p>Selecciona una propuesta de la lista para ver las opciones disponibles.</p>
+                </div>
+
+                <div class="actions-panel">
+                    <button class="btn btn-primary" onclick="showNewProposalModal()">
+                        🆕 Nueva Propuesta
+                    </button>
+
+                    <div class="btn-grid" id="actionButtons" style="display: none;">
+                        <button class="btn btn-info" onclick="viewProposal('md')">
+                            📝 Ver MD
+                        </button>
+                        <button class="btn btn-success" onclick="viewProposal('html')">
+                            🌐 Ver HTML
+                        </button>
+                        <button class="btn btn-warning" onclick="viewProposal('pdf')">
+                            📄 Ver PDF
+                        </button>
+                        <button class="btn btn-secondary" onclick="regenerateProposal()">
+                            🔄 Regenerar
+                        </button>
+                        <button class="btn btn-info" onclick="modifyProposal()">
+                            ✏️ Modificar
+                        </button>
+                        <button class="btn btn-danger" onclick="deleteProposal()">
+                            🗑️ Eliminar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para Nueva Propuesta -->
+    <div id="newProposalModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>🆕 Nueva Propuesta</h2>
+                <span class="close" onclick="closeModal('newProposalModal')">&times;</span>
+            </div>
+            
+            <form id="newProposalForm">
+                <div class="form-group">
+                    <label for="title">Título:</label>
+                    <input type="text" id="title" name="title" value="Propuesta de Servicios" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="subtitle">Subtítulo:</label>
+                    <input type="text" id="subtitle" name="subtitle" placeholder="Ingresa el subtítulo">
+                </div>
+                
+                <div class="form-group">
+                    <label for="prompt">Prompt:</label>
+                    <textarea id="prompt" name="prompt" placeholder="Escribe aquí tu prompt..." required></textarea>
+                </div>
+                
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('newProposalModal')">
+                        Cancelar
+                    </button>
+                    <button type="submit" class="btn btn-primary">
+                        Crear Propuesta
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal para Modificar Propuesta -->
+    <div id="modifyProposalModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>✏️ Modificar Propuesta</h2>
+                <span class="close" onclick="closeModal('modifyProposalModal')">&times;</span>
+            </div>
+            
+            <form id="modifyProposalForm">
+                <div class="form-group">
+                    <label for="modifyTitle">Título:</label>
+                    <input type="text" id="modifyTitle" name="title" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="modifySubtitle">Subtítulo:</label>
+                    <input type="text" id="modifySubtitle" name="subtitle">
+                </div>
+                
+                <div class="form-group">
+                    <label for="modifyPrompt">Prompt:</label>
+                    <textarea id="modifyPrompt" name="prompt" required></textarea>
+                </div>
+                
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal('modifyProposalModal')">
+                        Cancelar
+                    </button>
+                    <button type="submit" class="btn btn-primary">
+                        Modificar Propuesta
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal de Confirmación -->
+    <div id="confirmModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="confirmTitle">Confirmar Acción</h2>
+                <span class="close" onclick="closeModal('confirmModal')">&times;</span>
+            </div>
+            
+            <div class="modal-body">
+                <p id="confirmMessage">¿Estás seguro de que deseas realizar esta acción?</p>
+            </div>
+            
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('confirmModal')">
+                    Cancelar
+                </button>
+                <button type="button" class="btn btn-danger" id="confirmButton" onclick="confirmAction()">
+                    Confirmar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Variables globales
+        let proposals = [];
+        let filteredProposals = [];
+        let selectedProposal = null;
+        let currentAction = null;
+
+        // Inicialización
+        document.addEventListener('DOMContentLoaded', function() {
+            loadProposals();
+            setupEventListeners();
+        });
+
+        // Configurar event listeners
+        function setupEventListeners() {
+            // Búsqueda
+            document.getElementById('searchInput').addEventListener('input', function(e) {
+                filterProposals(e.target.value);
+            });
+
+            // Formularios
+            document.getElementById('newProposalForm').addEventListener('submit', handleNewProposal);
+            document.getElementById('modifyProposalForm').addEventListener('submit', handleModifyProposal);
+        }
+
+        // Cargar propuestas
+        async function loadProposals() {
+            try {
+                showLoading('loadingProposals');
+                const response = await window.go.main.App.GetProposals();
+                proposals = response || [];
+                filteredProposals = [...proposals];
+                renderProposals();
+                hideLoading('loadingProposals');
+            } catch (error) {
+                console.error('Error cargando propuestas:', error);
+                hideLoading('loadingProposals');
+                showMessage('Error cargando propuestas: ' + error.message, 'error');
+            }
+        }
+
+        // Filtrar propuestas
+        function filterProposals(searchText) {
+            if (!searchText.trim()) {
+                filteredProposals = [...proposals];
+            } else {
+                const search = searchText.toLowerCase();
+                filteredProposals = proposals.filter(proposal => 
+                    proposal.title.toLowerCase().includes(search) ||
+                    proposal.subtitle.toLowerCase().includes(search)
+                );
+            }
+            renderProposals();
+        }
+
+        // Renderizar propuestas
+        function renderProposals() {
+            const container = document.getElementById('proposalsList');
+            container.innerHTML = '';
+
+            if (filteredProposals.length === 0) {
+                container.innerHTML = '<div style="text-align: center; padding: 20px; color: #a0aec0;">No hay propuestas disponibles</div>';
+                return;
+            }
+
+            filteredProposals.forEach(proposal => {
+                const item = document.createElement('div');
+                item.className = 'proposal-item';
+                item.onclick = () => selectProposal(proposal);
+                
+                const date = new Date(proposal.created_at).toLocaleDateString('es-ES', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+
+                item.innerHTML = `
+                    <div class="proposal-title">${proposal.title}</div>
+                    <div class="proposal-subtitle">${proposal.subtitle || 'Sin subtítulo'}</div>
+                    <div class="proposal-date">${date}</div>
+                `;
+
+                container.appendChild(item);
+            });
+        }
+
+        // Seleccionar propuesta
+        function selectProposal(proposal) {
+            selectedProposal = proposal;
+            
+            // Actualizar UI
+            document.querySelectorAll('.proposal-item').forEach(item => {
+                item.classList.remove('selected');
+            });
+            event.target.closest('.proposal-item').classList.add('selected');
+
+            // Mostrar información seleccionada
+            const selectedInfo = document.getElementById('selectedInfo');
+            selectedInfo.innerHTML = `
+                <h3>${proposal.title}</h3>
+                <p><strong>Subtítulo:</strong> ${proposal.subtitle || 'Sin subtítulo'}</p>
+                <p><strong>Creada:</strong> ${new Date(proposal.created_at).toLocaleString('es-ES')}</p>
+                <p><strong>ID:</strong> ${proposal.id}</p>
+            `;
+
+            // Mostrar botones de acción
+            document.getElementById('actionButtons').style.display = 'grid';
+        }
+
+        // Mostrar modal de nueva propuesta
+        function showNewProposalModal() {
+            document.getElementById('newProposalModal').style.display = 'block';
+            document.getElementById('title').focus();
+        }
+
+        // Manejar nueva propuesta
+        async function handleNewProposal(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(e.target);
+            const proposal = {
+                title: formData.get('title'),
+                subtitle: formData.get('subtitle'),
+                prompt: formData.get('prompt'),
+                model: 'gpt-5-chat-latest'
+            };
+
+            try {
+                showMessage('Creando propuesta...', 'info');
+                const response = await window.go.main.App.CreateProposal(proposal);
+                
+                if (response && response.id) {
+                    showMessage('Propuesta creada exitosamente!', 'success');
+                    closeModal('newProposalModal');
+                    e.target.reset();
+                    loadProposals();
+                } else {
+                    showMessage('Error creando propuesta', 'error');
+                }
+            } catch (error) {
+                console.error('Error creando propuesta:', error);
+                showMessage('Error creando propuesta: ' + error.message, 'error');
+            }
+        }
+
+        // Ver propuesta
+        async function viewProposal(format) {
+            if (!selectedProposal) return;
+
+            try {
+                showMessage(`Descargando ${format.toUpperCase()}...`, 'info');
+                const response = await window.go.main.App.DownloadProposal(selectedProposal.id, format);
+                
+                if (response && response.success) {
+                    showMessage(`${format.toUpperCase()} descargado exitosamente!`, 'success');
+                } else {
+                    showMessage(`Error descargando ${format.toUpperCase()}`, 'error');
+                }
+            } catch (error) {
+                console.error(`Error descargando ${format}:`, error);
+                showMessage(`Error descargando ${format}: ` + error.message, 'error');
+            }
+        }
+
+        // Regenerar propuesta
+        async function regenerateProposal() {
+            if (!selectedProposal) return;
+
+            showConfirmModal(
+                'Regenerar Propuesta',
+                '¿Estás seguro de que deseas regenerar esta propuesta? Esto creará una nueva versión.',
+                async () => {
+                    try {
+                        showMessage('Regenerando propuesta...', 'info');
+                        const response = await window.go.main.App.RegenerateProposal(selectedProposal.id);
+                        
+                        if (response && response.success) {
+                            showMessage('Propuesta regenerada exitosamente!', 'success');
+                            loadProposals();
+                        } else {
+                            showMessage('Error regenerando propuesta', 'error');
+                        }
+                    } catch (error) {
+                        console.error('Error regenerando propuesta:', error);
+                        showMessage('Error regenerando propuesta: ' + error.message, 'error');
+                    }
+                }
+            );
+        }
+
+        // Modificar propuesta
+        function modifyProposal() {
+            if (!selectedProposal) return;
+
+            document.getElementById('modifyTitle').value = selectedProposal.title;
+            document.getElementById('modifySubtitle').value = selectedProposal.subtitle || '';
+            document.getElementById('modifyPrompt').value = selectedProposal.prompt || '';
+            
+            document.getElementById('modifyProposalModal').style.display = 'block';
+        }
+
+        // Manejar modificación de propuesta
+        async function handleModifyProposal(e) {
+            e.preventDefault();
+            
+            if (!selectedProposal) return;
+
+            const formData = new FormData(e.target);
+            const updates = {
+                id: selectedProposal.id,
+                title: formData.get('title'),
+                subtitle: formData.get('subtitle'),
+                prompt: formData.get('prompt')
+            };
+
+            try {
+                showMessage('Modificando propuesta...', 'info');
+                const response = await window.go.main.App.UpdateProposal(updates);
+                
+                if (response && response.success) {
+                    showMessage('Propuesta modificada exitosamente!', 'success');
+                    closeModal('modifyProposalModal');
+                    loadProposals();
+                } else {
+                    showMessage('Error modificando propuesta', 'error');
+                }
+            } catch (error) {
+                console.error('Error modificando propuesta:', error);
+                showMessage('Error modificando propuesta: ' + error.message, 'error');
+            }
+        }
+
+        // Eliminar propuesta
+        function deleteProposal() {
+            if (!selectedProposal) return;
+
+            showConfirmModal(
+                'Eliminar Propuesta',
+                '¿Estás seguro de que deseas eliminar esta propuesta? Esta acción no se puede deshacer.',
+                async () => {
+                    try {
+                        showMessage('Eliminando propuesta...', 'info');
+                        const response = await window.go.main.App.DeleteProposal(selectedProposal.id);
+                        
+                        if (response && response.success) {
+                            showMessage('Propuesta eliminada exitosamente!', 'success');
+                            selectedProposal = null;
+                            document.getElementById('actionButtons').style.display = 'none';
+                            document.getElementById('selectedInfo').innerHTML = `
+                                <h3>Ninguna propuesta seleccionada</h3>
+                                <p>Selecciona una propuesta de la lista para ver las opciones disponibles.</p>
+                            `;
+                            loadProposals();
+                        } else {
+                            showMessage('Error eliminando propuesta', 'error');
+                        }
+                    } catch (error) {
+                        console.error('Error eliminando propuesta:', error);
+                        showMessage('Error eliminando propuesta: ' + error.message, 'error');
+                    }
+                }
+            );
+        }
+
+        // Mostrar modal de confirmación
+        function showConfirmModal(title, message, callback) {
+            document.getElementById('confirmTitle').textContent = title;
+            document.getElementById('confirmMessage').textContent = message;
+            currentAction = callback;
+            document.getElementById('confirmModal').style.display = 'block';
+        }
+
+        // Confirmar acción
+        function confirmAction() {
+            if (currentAction) {
+                currentAction();
+                currentAction = null;
+            }
+            closeModal('confirmModal');
+        }
+
+        // Cerrar modal
+        function closeModal(modalId) {
+            document.getElementById(modalId).style.display = 'none';
+        }
+
+        // Mostrar loading
+        function showLoading(elementId) {
+            document.getElementById(elementId).style.display = 'block';
+        }
+
+        // Ocultar loading
+        function hideLoading(elementId) {
+            document.getElementById(elementId).style.display = 'none';
+        }
+
+        // Mostrar mensaje
+        function showMessage(message, type) {
+            // Crear elemento de mensaje
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `status-message status-${type} fade-in`;
+            messageDiv.textContent = message;
+
+            // Insertar al inicio del contenedor
+            const container = document.querySelector('.container');
+            container.insertBefore(messageDiv, container.firstChild);
+
+            // Remover después de 5 segundos
+            setTimeout(() => {
+                if (messageDiv.parentNode) {
+                    messageDiv.parentNode.removeChild(messageDiv);
+                }
+            }, 5000);
+        }
+
+        // Cerrar modales al hacer clic fuera
+        window.onclick = function(event) {
+            const modals = document.querySelectorAll('.modal');
+            modals.forEach(modal => {
+                if (event.target === modal) {
+                    modal.style.display = 'none';
+                }
+            });
+        }
+    </script>
+</body>
+</html>

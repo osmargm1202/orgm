@@ -1,0 +1,24 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "orgm-prop",
+  "outputfilename": "orgm-prop",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "orgm-cli",
+    "email": ""
+  },
+  "info": {
+    "productName": "Gestor de Propuestas",
+    "productVersion": "1.0.0",
+    "copyright": "Copyright © 2024",
+    "comments": "Gestor de propuestas con interfaz gráfica"
+  },
+  "nsisType": "multiple",
+  "obfuscated": false,
+  "wailsjsdir": "./frontend",
+  "frontenddir": "./frontend",
+  "version": "2"
+}

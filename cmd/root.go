@@ -67,7 +67,6 @@ func init() {
 	RootCmd.AddCommand(adm.AdmCmd)
 	RootCmd.AddCommand(misc.MiscCmd)
 	RootCmd.AddCommand(InitCmd)
-	RootCmd.AddCommand(ConfigCmd())
 	RootCmd.AddCommand(UpdateCmd)
 	RootCmd.AddCommand(PropCmd)
 	RootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
@@ -121,10 +120,10 @@ func updateFunc() {
 
 	switch runtime.GOOS {
 	case "windows":
-		installerURL = "https://raw.githubusercontent.com/osmargm1202/orgm/master/install.bat"
+		installerURL = "https://raw.githubusercontent.com/osmargm1202/orgm/main/install.bat"
 		installerName = "install.bat"
 	case "linux", "darwin":
-		installerURL = "https://raw.githubusercontent.com/osmargm1202/orgm/master/install.sh"
+		installerURL = "https://raw.githubusercontent.com/osmargm1202/orgm/main/install.sh"
 		installerName = "install.sh"
 	default:
 		fmt.Printf("❌ Unsupported operating system: %s\n", runtime.GOOS)

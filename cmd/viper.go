@@ -2,8 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -36,25 +34,7 @@ func showViperConfig() {
 		fmt.Printf("  ✗ config.toml: Not found\n")
 	}
 
-	// Check for links.toml
-	homeDir, err := os.UserHomeDir()
-	if err == nil {
-		configDir := filepath.Join(homeDir, ".config", "orgm")
-		linksFile := filepath.Join(configDir, "links.toml")
-		if _, err := os.Stat(linksFile); err == nil {
-			fmt.Printf("  ✓ links.toml: %s\n", linksFile)
-		} else {
-			fmt.Printf("  ✗ links.toml: Not found\n")
-		}
-
-		// Check for keys.toml
-		keysFile := filepath.Join(configDir, "keys.toml")
-		if _, err := os.Stat(keysFile); err == nil {
-			fmt.Printf("  ✓ keys.toml: %s\n", keysFile)
-		} else {
-			fmt.Printf("  ✗ keys.toml: Not found\n")
-		}
-	}
+    // Deprecated: links.toml and keys.toml are no longer used
 
 	fmt.Println()
 
