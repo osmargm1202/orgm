@@ -1,4 +1,4 @@
-export namespace main {
+export namespace propapi {
 	
 	export class Proposal {
 	    id: string;

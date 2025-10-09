@@ -77,29 +77,30 @@ func BuildWindows() error {
 }
 
 func BuildProp() error {
-	fmt.Println("Building for Prop...")
-	goCmd := exec.Command("go", "build", "-o", "orgm-prop", ".")
-	goCmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH=amd64")
-	output, err := goCmd.CombinedOutput()
+	fmt.Println("Building orgm-prop (Linux) with Wails...")
+	wailsCmd := exec.Command("wails", "build")
+	wailsCmd.Dir = "./apps/prop"
+	wailsCmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH=amd64")
+	output, err := wailsCmd.CombinedOutput()
 	if err != nil {
-		fmt.Printf("Error building for Prop: %s \n %s", err, output)
+		fmt.Printf("Error building orgm-prop (Linux) with Wails: %s \n %s", err, output)
 		return err
 	}
-
-	fmt.Printf("Successfully built for Prop: %s \n %s", "orgm-prop", output)
+	fmt.Printf("Successfully built orgm-prop (Linux) with Wails:\n%s\n", output)
 	return nil
 }
 
 func BuildPropWindows() error {
-	fmt.Println("Building for Prop Windows...")
-	goCmd := exec.Command("go", "build", "-o", "orgm-prop.exe", ".")
-	goCmd.Env = append(os.Environ(), "GOOS=windows", "GOARCH=amd64", "CGO_ENABLED=1", "CC=x86_64-w64-mingw32-gcc")
-	output, err := goCmd.CombinedOutput()
+	fmt.Println("Building orgm-prop.exe (Windows) with Wails...")
+	wailsCmd := exec.Command("wails", "build")
+	wailsCmd.Dir = "./apps/prop"
+	wailsCmd.Env = append(os.Environ(), "GOOS=windows", "GOARCH=amd64", "CGO_ENABLED=1", "CC=x86_64-w64-mingw32-gcc")
+	output, err := wailsCmd.CombinedOutput()
 	if err != nil {
-		fmt.Printf("Error building for Prop Windows: %s \n %s", err, output)
+		fmt.Printf("Error building orgm-prop.exe (Windows) with Wails: %s \n %s", err, output)
 		return err
 	}
-	fmt.Printf("Successfully built for Prop Windows: %s \n %s", "orgm-prop.exe", output)
+	fmt.Printf("Successfully built orgm-prop.exe (Windows) with Wails:\n%s\n", output)
 	return nil
 }
 

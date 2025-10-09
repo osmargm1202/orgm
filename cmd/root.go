@@ -11,8 +11,6 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/osmargm1202/orgm/cmd/adm"
-	"github.com/osmargm1202/orgm/cmd/misc"
 	"github.com/osmargm1202/orgm/inputs"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -65,9 +63,6 @@ func Execute() {
 func init() {
 	cobra.OnInitialize(initConfig)
 	RootCmd.AddCommand(versionCmd)
-	RootCmd.AddCommand(adm.AdmCmd)
-	RootCmd.AddCommand(misc.MiscCmd)
-	RootCmd.AddCommand(InitCmd)
 	RootCmd.AddCommand(UpdateCmd)
 	RootCmd.AddCommand(PropCmd)
 	RootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")

@@ -97,6 +97,8 @@ al crear esta cotizacion tengo la opcion de darle al boton para empezar a editar
 
 la ficha cotizaciones comienza con una barra de busqueda de las cotizaciones existtente, una tabla de cotizaciones con las ultimas 10 y un boton de crear nueva, y casila para poner el id de la cotizacion
 
+la tabla debe tener id, cliente, proyecto, servicio
+
 al seleccionar una cotizacion se activan unos campos donde puedo editar los datos de la cotizacion, adicional a eso tengo los bootens de imprimir en pdf, y un cadro donde se visualizan los pagos asignados que tiene la cotizacion y un porcentaje del monto total.
 
 tambien carga de presupuesto el total del presupuesto de la cotizacion tanto en indirectos como en subtotal y calcula los totales del presupuesto y los presenta, al cambiar el descuento, itbis, retencion los totales se actualizan.
@@ -108,7 +110,23 @@ antes de imprimir se debe guardar pedir al usuario guardar si no ha guardado y h
 
 en esta pestana esta una barra de busqueda de cientes, con casilla de id, donde cuando seeecciono el cliente en otra taba se pueden ver los pagos recibidos de cliente,, cada pago tiene la posibiidad de subir un comprobante. en pdf o imagen. tambien al seleccionar un cliente hay un boton de nuevo pago donde puedo insertar e lpago en USD o RD$ y la fecha, luego a la derecha de los datos de pago, hay una lista de cotizaciones que estan pendientes de pago con su id, proyecto y cuanto falta para saldar, entonces hay una casilla donde puedo poner el monto o en otra casilla el porrcentaje del pago que se asignara a esta cotizacion y me muestra en otra casila cuanto pago tiene total y otra casilla cuanto fata para el 100%.
 
-mas abajo debe haber una tabla con los pagos que faltan por 
+mas abajo debe haber una tabla con los pagos que faltan por asignar a una cotizacion. poder seleccionarlos y asignar a que cotizacion corresponden.
 
-## 
+## estados
 
+este dash contiene una lista de clientes par apoder imprimir de ellos las cotizaciones pendientes de pago con un resumen de cuanto faltaa por pagar, cuanto se ha pagado. me debe permitir seeccionar cuales cotizaciones quiero en el resumen final.
+
+## facturas
+
+esta dash tiene una lista de busqueda de cotizaciones APROBADAS a la cual si la seecciono puedo facturar un porciento de la factura o un monto tota de la factura que incluye itbis, al crear esta factura sin aaasingar comprobante luego de que verifico que los totales o los daatos son correctos puedo imprimiraal asin comprobante o asignarle un comprobante para luego imprimrla.
+
+## comprobantes
+
+en este sitio puedo ver una litaa tabla de los comprobantes y una lista de los comprobantes vigentes por fecha, los que no tiene fecha no se vencen. estan disponibles siempre. tambien me permitira agregar comporbantes desde el ultimo numero al nuevo numero con la fecha indicada en un selector de fecha.
+
+
+## funciones base
+
+cualquier logica quue pueda ser comun para futuras aplicaciones wails debe ser puesta en pkg/admappapi/client.go
+
+utiliza la autentificaccion de google cloud run en gcr.go, fijate como la usa la aplicacion /prop/main.go oara qye copies el mismo estilo para acceder a la api

@@ -1,0 +1,17 @@
+{
+  "tipos": {
+    "Proyectos": {
+      "carpetas": [
+        "01 - Documentos",
+        "02 - Planos",
+        "03 - Presupuestos",
+        "04 - Cotizaciones",
+        "05 - Facturas",
+        "06 - Pagos",
+        "07 - Comunicaciones",
+        "08 - Fotos",
+        "09 - Archivos Finales"
+      ]
+    }
+  }
+}

@@ -1,26 +1,21 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 
-	"github.com/BurntSushi/toml"
+	"github.com/osmargm1202/orgm/cmd"
+	"github.com/osmargm1202/orgm/pkg/propapi"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
-	"golang.org/x/oauth2/google"
-	"google.golang.org/api/idtoken"
-	"google.golang.org/api/option"
 )
 
 //go:embed all:frontend/dist
@@ -35,7 +30,8 @@ type Config struct {
 
 // App struct
 type App struct {
-	ctx context.Context
+	ctx    context.Context
+	client *propapi.Client
 }
 
 // TokenInfo represents the token information from gauth
@@ -86,7 +82,29 @@ func (t *TokenInfo) UnmarshalJSON(data []byte) error {
 
 // NewApp creates a new App application struct
 func NewApp() *App {
-	return &App{}
+	// Get base URL
+	baseURL, err := propapi.GetBaseURL()
+	if err != nil {
+		fmt.Printf("Error getting base URL: %v\n", err)
+		baseURL = "http://localhost:8000" // fallback
+	}
+
+	// Create auth function that uses cmd.EnsureGCloudIDToken
+	authFunc := func(req *http.Request) {
+		token, err := cmd.EnsureGCloudIDToken()
+		if err != nil || token == "" {
+			fmt.Printf("Warning: No se pudo obtener token de autenticación: %v\n", err)
+			return
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	// Create client
+	client := propapi.NewClient(baseURL, authFunc)
+
+	return &App{
+		client: client,
+	}
 }
 
 // startup is called when the app starts. The context is saved
@@ -282,139 +300,37 @@ func (m *ModifyProposalResponse) UnmarshalJSON(data []byte) error {
 }
 
 // GetProposals returns all proposals
-func (a *App) GetProposals() []Proposal {
-	baseURL, err := getBaseURL()
+func (a *App) GetProposals() []propapi.Proposal {
+	proposals, err := a.client.GetProposals()
 	if err != nil {
-		fmt.Printf("Error obteniendo URL base: %v\n", err)
-		return []Proposal{}
+		fmt.Printf("Error obteniendo propuestas: %v\n", err)
+		return []propapi.Proposal{}
 	}
-	
-	client := &http.Client{Timeout: 30 * time.Second}
-	req, err := http.NewRequest("GET", baseURL+"/proposals", nil)
-	if err != nil {
-		fmt.Printf("Error creando request: %v\n", err)
-		return []Proposal{}
-	}
-	
-	attachAuth(req)
-	
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Printf("Error haciendo request: %v\n", err)
-		return []Proposal{}
-	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		fmt.Printf("Error en respuesta: %d - %s\n", resp.StatusCode, string(body))
-		return []Proposal{}
-	}
-	
-	var proposals []Proposal
-	if err := json.NewDecoder(resp.Body).Decode(&proposals); err != nil {
-		fmt.Printf("Error decodificando respuesta: %v\n", err)
-		return []Proposal{}
-	}
-	
 	return proposals
 }
 
 // CreateProposal creates a new proposal
-func (a *App) CreateProposal(request TextGenerationRequest) *TextGenerationResponse {
-	baseURL, err := getBaseURL()
+func (a *App) CreateProposal(request propapi.TextGenerationRequest) *propapi.TextGenerationResponse {
+	response, err := a.client.CreateProposal(request)
 	if err != nil {
-		fmt.Printf("Error obteniendo URL base: %v\n", err)
+		fmt.Printf("Error creando propuesta: %v\n", err)
 		return nil
 	}
-	
-	// Set default model if not provided
-	if request.Model == "" {
-		request.Model = "gpt-5-chat-latest"
-	}
-	
-	jsonData, err := json.Marshal(request)
-	if err != nil {
-		fmt.Printf("Error serializando request: %v\n", err)
-		return nil
-	}
-	
-	client := &http.Client{Timeout: 30 * time.Second}
-	req, err := http.NewRequest("POST", baseURL+"/generate-text", bytes.NewBuffer(jsonData))
-	if err != nil {
-		fmt.Printf("Error creando request: %v\n", err)
-		return nil
-	}
-	
-	req.Header.Set("Content-Type", "application/json")
-	attachAuth(req)
-	
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Printf("Error haciendo request: %v\n", err)
-		return nil
-	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		fmt.Printf("Error en respuesta: %d - %s\n", resp.StatusCode, string(body))
-		return nil
-	}
-	
-	var response TextGenerationResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		fmt.Printf("Error decodificando respuesta: %v\n", err)
-		return nil
-	}
-	
-	return &response
+	return response
 }
 
 // DownloadProposal downloads a proposal file
 func (a *App) DownloadProposal(proposalID, format string) map[string]interface{} {
-	baseURL, err := getBaseURL()
-	if err != nil {
-		return map[string]interface{}{"success": false, "error": err.Error()}
-	}
-	
-	url := fmt.Sprintf("%s/proposal/%s/%s", baseURL, proposalID, format)
-	
-	client := &http.Client{Timeout: 30 * time.Second}
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return map[string]interface{}{"success": false, "error": err.Error()}
-	}
-	
-	attachAuth(req)
-	
-	resp, err := client.Do(req)
-	if err != nil {
-		return map[string]interface{}{"success": false, "error": err.Error()}
-	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return map[string]interface{}{"success": false, "error": fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body))}
-	}
-	
 	// Create downloads directory
 	homeDir, _ := os.UserHomeDir()
 	downloadsDir := filepath.Join(homeDir, "Downloads")
 	os.MkdirAll(downloadsDir, 0755)
 	
-	// Create file
+	// Create file path
 	filename := fmt.Sprintf("%s.%s", proposalID, format)
 	filepath := filepath.Join(downloadsDir, filename)
 	
-	file, err := os.Create(filepath)
-	if err != nil {
-		return map[string]interface{}{"success": false, "error": err.Error()}
-	}
-	defer file.Close()
-	
-	_, err = io.Copy(file, resp.Body)
+	err := a.client.DownloadProposalFile(proposalID, format, filepath)
 	if err != nil {
 		return map[string]interface{}{"success": false, "error": err.Error()}
 	}
@@ -424,39 +340,8 @@ func (a *App) DownloadProposal(proposalID, format string) map[string]interface{}
 
 // GenerateHTML generates HTML for a proposal
 func (a *App) GenerateHTML(proposalID string) map[string]interface{} {
-	baseURL, err := getBaseURL()
+	response, err := a.client.GenerateHTML(proposalID)
 	if err != nil {
-		return map[string]interface{}{"success": false, "error": err.Error()}
-	}
-	
-	htmlRequest := HTMLGenerationRequest{ProposalID: proposalID}
-	jsonData, err := json.Marshal(htmlRequest)
-	if err != nil {
-		return map[string]interface{}{"success": false, "error": err.Error()}
-	}
-	
-	client := &http.Client{Timeout: 30 * time.Second}
-	req, err := http.NewRequest("POST", baseURL+"/generate-html", bytes.NewBuffer(jsonData))
-	if err != nil {
-		return map[string]interface{}{"success": false, "error": err.Error()}
-	}
-	
-	req.Header.Set("Content-Type", "application/json")
-	attachAuth(req)
-	
-	resp, err := client.Do(req)
-	if err != nil {
-		return map[string]interface{}{"success": false, "error": err.Error()}
-	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return map[string]interface{}{"success": false, "error": fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body))}
-	}
-	
-	var response HTMLGenerationResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return map[string]interface{}{"success": false, "error": err.Error()}
 	}
 	
@@ -465,43 +350,12 @@ func (a *App) GenerateHTML(proposalID string) map[string]interface{} {
 
 // GeneratePDF generates PDF for a proposal
 func (a *App) GeneratePDF(proposalID, modo string) map[string]interface{} {
-	baseURL, err := getBaseURL()
-	if err != nil {
-		return map[string]interface{}{"success": false, "error": err.Error()}
-	}
-	
 	if modo == "" {
 		modo = "normal"
 	}
 	
-	pdfRequest := PDFGenerationRequest{ProposalID: proposalID, Modo: modo}
-	jsonData, err := json.Marshal(pdfRequest)
+	response, err := a.client.GeneratePDF(proposalID, modo)
 	if err != nil {
-		return map[string]interface{}{"success": false, "error": err.Error()}
-	}
-	
-	client := &http.Client{Timeout: 30 * time.Second}
-	req, err := http.NewRequest("POST", baseURL+"/generate-pdf", bytes.NewBuffer(jsonData))
-	if err != nil {
-		return map[string]interface{}{"success": false, "error": err.Error()}
-	}
-	
-	req.Header.Set("Content-Type", "application/json")
-	attachAuth(req)
-	
-	resp, err := client.Do(req)
-	if err != nil {
-		return map[string]interface{}{"success": false, "error": err.Error()}
-	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return map[string]interface{}{"success": false, "error": fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body))}
-	}
-	
-	var response PDFGenerationResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return map[string]interface{}{"success": false, "error": err.Error()}
 	}
 	
@@ -510,42 +364,9 @@ func (a *App) GeneratePDF(proposalID, modo string) map[string]interface{} {
 
 // RegenerateProposal regenerates a proposal with new title/subtitle/prompt
 func (a *App) RegenerateProposal(proposalID, title, subtitle, prompt string) map[string]interface{} {
-	baseURL, err := getBaseURL()
+	err := a.client.RegenerateProposal(proposalID, title, subtitle, prompt)
 	if err != nil {
 		return map[string]interface{}{"success": false, "error": err.Error()}
-	}
-	
-	body := map[string]string{
-		"title":   title,
-		"subtitle": subtitle,
-		"prompt":  prompt,
-		"model":   "gpt-5-chat-latest",
-	}
-	
-	jsonData, err := json.Marshal(body)
-	if err != nil {
-		return map[string]interface{}{"success": false, "error": err.Error()}
-	}
-	
-	url := fmt.Sprintf("%s/proposal/%s/regenerate", baseURL, proposalID)
-	client := &http.Client{Timeout: 30 * time.Second}
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return map[string]interface{}{"success": false, "error": err.Error()}
-	}
-	
-	req.Header.Set("Content-Type", "application/json")
-	attachAuth(req)
-	
-	resp, err := client.Do(req)
-	if err != nil {
-		return map[string]interface{}{"success": false, "error": err.Error()}
-	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return map[string]interface{}{"success": false, "error": fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body))}
 	}
 	
 	return map[string]interface{}{"success": true}
@@ -553,40 +374,9 @@ func (a *App) RegenerateProposal(proposalID, title, subtitle, prompt string) map
 
 // UpdateTitleSubtitle updates only title and subtitle of a proposal
 func (a *App) UpdateTitleSubtitle(proposalID, title, subtitle string) map[string]interface{} {
-	baseURL, err := getBaseURL()
+	err := a.client.UpdateTitleSubtitle(proposalID, title, subtitle)
 	if err != nil {
 		return map[string]interface{}{"success": false, "error": err.Error()}
-	}
-	
-	body := map[string]string{
-		"title":    title,
-		"subtitle": subtitle,
-	}
-	
-	jsonData, err := json.Marshal(body)
-	if err != nil {
-		return map[string]interface{}{"success": false, "error": err.Error()}
-	}
-	
-	url := fmt.Sprintf("%s/proposal/%s/title-subtitle", baseURL, proposalID)
-	client := &http.Client{Timeout: 30 * time.Second}
-	req, err := http.NewRequest("PATCH", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return map[string]interface{}{"success": false, "error": err.Error()}
-	}
-	
-	req.Header.Set("Content-Type", "application/json")
-	attachAuth(req)
-	
-	resp, err := client.Do(req)
-	if err != nil {
-		return map[string]interface{}{"success": false, "error": err.Error()}
-	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return map[string]interface{}{"success": false, "error": fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body))}
 	}
 	
 	return map[string]interface{}{"success": true}
@@ -594,46 +384,8 @@ func (a *App) UpdateTitleSubtitle(proposalID, title, subtitle string) map[string
 
 // ModifyProposal modifies a proposal with new prompt
 func (a *App) ModifyProposal(proposalID, title, subtitle, prompt string) map[string]interface{} {
-	baseURL, err := getBaseURL()
+	response, err := a.client.ModifyProposal(proposalID, title, subtitle, prompt)
 	if err != nil {
-		return map[string]interface{}{"success": false, "error": err.Error()}
-	}
-	
-	request := TextGenerationRequest{
-		Title:    title,
-		Subtitle: subtitle,
-		Prompt:   prompt,
-		Model:    "gpt-5-chat-latest",
-	}
-	
-	jsonData, err := json.Marshal(request)
-	if err != nil {
-		return map[string]interface{}{"success": false, "error": err.Error()}
-	}
-	
-	url := fmt.Sprintf("%s/proposal/%s", baseURL, proposalID)
-	client := &http.Client{Timeout: 30 * time.Second}
-	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return map[string]interface{}{"success": false, "error": err.Error()}
-	}
-	
-	req.Header.Set("Content-Type", "application/json")
-	attachAuth(req)
-	
-	resp, err := client.Do(req)
-	if err != nil {
-		return map[string]interface{}{"success": false, "error": err.Error()}
-	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return map[string]interface{}{"success": false, "error": fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body))}
-	}
-	
-	var response ModifyProposalResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return map[string]interface{}{"success": false, "error": err.Error()}
 	}
 	
@@ -642,30 +394,9 @@ func (a *App) ModifyProposal(proposalID, title, subtitle, prompt string) map[str
 
 // DeleteProposal deletes a proposal
 func (a *App) DeleteProposal(proposalID string) map[string]interface{} {
-	baseURL, err := getBaseURL()
+	err := a.client.DeleteProposal(proposalID)
 	if err != nil {
 		return map[string]interface{}{"success": false, "error": err.Error()}
-	}
-	
-	url := fmt.Sprintf("%s/proposal/%s", baseURL, proposalID)
-	
-	client := &http.Client{Timeout: 30 * time.Second}
-	req, err := http.NewRequest("DELETE", url, nil)
-	if err != nil {
-		return map[string]interface{}{"success": false, "error": err.Error()}
-	}
-	
-	attachAuth(req)
-	
-	resp, err := client.Do(req)
-	if err != nil {
-		return map[string]interface{}{"success": false, "error": err.Error()}
-	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return map[string]interface{}{"success": false, "error": fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body))}
 	}
 	
 	return map[string]interface{}{"success": true}
@@ -722,166 +453,6 @@ func (a *App) OpenFile(filepath string) map[string]interface{} {
 }
 
 // Helper functions
-func getBaseURL() (string, error) {
-	// Get home directory
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("error obteniendo directorio home: %v", err)
-	}
-	
-	// Try to load config from ~/.config/orgm/config.toml
-	configPath := filepath.Join(homeDir, ".config", "orgm", "config.toml")
-	if _, err := os.Stat(configPath); err == nil {
-		configData, err := os.ReadFile(configPath)
-		if err == nil {
-			var config Config
-			if _, err := toml.Decode(string(configData), &config); err == nil {
-				if config.URL.PropuestasAPI != "" {
-					return strings.TrimSuffix(config.URL.PropuestasAPI, "/"), nil
-				}
-			}
-		}
-	}
-	
-	// Fallback to environment variable or default
-	baseURL := os.Getenv("PROPUESTAS_API_URL")
-	if baseURL == "" {
-		baseURL = "http://localhost:8000"
-	}
-	return strings.TrimSuffix(baseURL, "/"), nil
-}
-
-// getGCloudIDToken obtains an ID token for Cloud Run using the same logic as gcr.go
-func getGCloudIDToken() (string, error) {
-	// Try disk cache first
-	if cachedTok, cachedExp, ok := loadCachedToken(); ok {
-		if time.Unix(cachedExp, 0).After(time.Now().Add(2 * time.Minute)) {
-			return cachedTok, nil
-		}
-	}
-
-	// Get audience from config
-	baseURL, err := getBaseURL()
-	if err != nil {
-		return "", fmt.Errorf("url.propuestas_api no está configurado: %v", err)
-	}
-
-	// Get config path
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("error obteniendo directorio home: %v", err)
-	}
-	configPath := filepath.Join(homeDir, ".config", "orgm")
-
-	// Find any file ending with google.json
-	var credFile string
-	entries, err := os.ReadDir(configPath)
-	if err != nil {
-		return "", fmt.Errorf("error leyendo directorio de configuración: %v", err)
-	}
-	
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), "google.json") {
-			credFile = filepath.Join(configPath, entry.Name())
-			break
-		}
-	}
-	
-	if credFile == "" {
-		return "", fmt.Errorf("no se encontró ningún archivo que termine en 'google.json' en %s", configPath)
-	}
-
-	// Print which credentials file is being used
-	fmt.Printf("🔑 Usando credenciales de Google: %s\n", filepath.Base(credFile))
-
-	ctx := context.Background()
-
-	// Prefer idtoken for Cloud Run (OIDC ID token for the service URL)
-	ts, err := idtoken.NewTokenSource(ctx, baseURL, option.WithCredentialsFile(credFile))
-	if err != nil {
-		// Fallback: try default credentials path if provided via env
-		if _, derr := google.FindDefaultCredentials(ctx); derr != nil {
-			return "", fmt.Errorf("no se pudo crear TokenSource: %v", err)
-		}
-		ts, err = idtoken.NewTokenSource(ctx, baseURL)
-		if err != nil {
-			return "", fmt.Errorf("no se pudo crear TokenSource (fallback): %v", err)
-		}
-	}
-
-	tok, err := ts.Token()
-	if err != nil {
-		return "", fmt.Errorf("no se pudo obtener token: %v", err)
-	}
-
-	// Determine expiry
-	var expiryUnix int64
-	if !tok.Expiry.IsZero() {
-		expiryUnix = tok.Expiry.Unix()
-	} else {
-		// If expiry is missing, set a short-lived default (55 minutes typical for ID tokens)
-		expiryUnix = time.Now().Add(55 * time.Minute).Unix()
-	}
-
-	// Persist to disk for reuse across runs
-	_ = saveCachedToken(tok.AccessToken, expiryUnix)
-
-	return tok.AccessToken, nil
-}
-
-// tokenCachePath returns the path where the token cache is stored
-func tokenCachePath() string {
-	homeDir, _ := os.UserHomeDir()
-	configPath := filepath.Join(homeDir, ".config", "orgm")
-	return filepath.Join(configPath, ".gauth_token.json")
-}
-
-func loadCachedToken() (string, int64, bool) {
-	path := tokenCachePath()
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return "", 0, false
-	}
-	var data struct {
-		Token       string `json:"token"`
-		ExpiryUnix  int64  `json:"expiry_unix"`
-	}
-	if err := json.Unmarshal(b, &data); err != nil {
-		return "", 0, false
-	}
-	if data.Token == "" || data.ExpiryUnix == 0 {
-		return "", 0, false
-	}
-	return data.Token, data.ExpiryUnix, true
-}
-
-func saveCachedToken(token string, expiryUnix int64) error {
-	path := tokenCachePath()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return err
-	}
-	data := struct {
-		Token      string `json:"token"`
-		ExpiryUnix int64  `json:"expiry_unix"`
-	}{Token: token, ExpiryUnix: expiryUnix}
-	b, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, b, 0600)
-}
-
-// attachAuth adds the Authorization header using the cached Google ID token
-func attachAuth(req *http.Request) {
-	// Get token (will generate new one if needed)
-	token, err := getGCloudIDToken()
-	if err != nil || token == "" {
-		fmt.Printf("Warning: No se pudo obtener token de autenticación: %v\n", err)
-		return
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-}
-
 // isCommandAvailable checks if a command is available in the system PATH
 func isCommandAvailable(command string) bool {
 	_, err := exec.LookPath(command)

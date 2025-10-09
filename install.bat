@@ -10,8 +10,8 @@ REM Variables
 set "INSTALL_DIR=%USERPROFILE%\.config\orgm"
 set "BINARY_URL=https://raw.githubusercontent.com/osmargm1202/orgm/main/orgm.exe"
 set "BINARY_PATH=%INSTALL_DIR%\orgm.exe"
-set "WAILS_BINARY_URL=https://raw.githubusercontent.com/osmargm1202/orgm/main/orgm-prop.exe"
-set "WAILS_BINARY_PATH=%INSTALL_DIR%\orgm-prop.exe"
+set "ORGM_PROP_BINARY_URL=https://raw.githubusercontent.com/osmargm1202/orgm/main/apps/prop/build/bin/orgm-prop.exe"
+set "ORGM_PROP_BINARY_PATH=%INSTALL_DIR%\orgm-prop.exe"
 
 REM Create installation directory if it doesn't exist
 echo Creating installation directory: %INSTALL_DIR%
@@ -28,12 +28,12 @@ if not exist "%BINARY_PATH%" (
     exit /b 1
 )
 
-REM Download the Wails binary
-echo Downloading ORGM Wails binary...
-powershell -Command "try { Invoke-WebRequest -Uri '%WAILS_BINARY_URL%' -OutFile '%WAILS_BINARY_PATH%' -UseBasicParsing } catch { Write-Host 'Error downloading Wails file: ' $_.Exception.Message; exit 1 }"
+REM Download the ORGM orgm-prop binary
+echo Downloading ORGM orgm-prop binary...
+powershell -Command "try { Invoke-WebRequest -Uri '%ORGM_PROP_BINARY_URL%' -OutFile '%ORGM_PROP_BINARY_PATH%' -UseBasicParsing } catch { Write-Host 'Error downloading ORGM orgm-prop file: ' $_.Exception.Message; exit 1 }"
 
-if not exist "%WAILS_BINARY_PATH%" (
-    echo Error: Failed to download ORGM Wails binary
+if not exist "%ORGM_PROP_BINARY_PATH%" (
+    echo Error: Failed to download ORGM orgm-prop binary
     exit /b 1
 )
 
@@ -83,11 +83,11 @@ if errorlevel 1 (
 ) else (
     echo ORGM CLI installed successfully!
     echo Installed at: %BINARY_PATH%
-    echo Wails binary at: %WAILS_BINARY_PATH%
+    echo orgm-prop binary at: %ORGM_PROP_BINARY_PATH%
     echo.
     echo You can now use 'orgm' command in new terminals!
     echo Try: orgm --help
-    echo Try: orgm prop wails (for GUI interface)
+    echo Try: orgm prop orgm-prop (for GUI interface)
 )
 
 echo.

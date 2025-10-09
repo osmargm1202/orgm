@@ -3,7 +3,6 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -13,13 +12,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/osmargm1202/orgm/inputs"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 // Model for API responses
-type service struct {
-	ID     int    `json:"id"`
-	Nombre string `json:"nombre"`
-}
 
 type project struct {
 	ID             int    `json:"id"`
@@ -32,6 +28,7 @@ type servicio struct {
 }
 
 type cotizaciondetalle struct {
+	ID       int      `json:"id"`
 	Servicio servicio `json:"servicio"`
 	Proyecto project  `json:"proyecto"`
 }
@@ -95,15 +92,35 @@ var FolderCmd = &cobra.Command{
 	},
 }
 
-// Get all services from PostgREST API
-func obtenerServicios() ([]service, error) {
-	postgrestURL, headers := InitializePostgrest()
-	if postgrestURL == "" {
-		return nil, fmt.Errorf("error getting API URL")
+// InitializeAdminAPI returns Admin API configuration with GCR token
+func InitializeAdminAPI() (string, map[string]string, error) {
+	baseURL := viper.GetString("url.admapp_api")
+	if baseURL == "" {
+		return "", nil, fmt.Errorf("url.admapp_api no configurado")
+	}
+	
+	token, err := EnsureGCloudIDToken()
+	if err != nil {
+		return "", nil, fmt.Errorf("error obteniendo token: %v", err)
+	}
+	
+	headers := map[string]string{
+		"Authorization": "Bearer " + token,
+		"X-Tenant-Id": "1",
+	}
+	
+	return baseURL, headers, nil
+}
+
+// Get all services from Admin API
+func obtenerServicios() ([]servicio, error) {
+	baseURL, headers, err := InitializeAdminAPI()
+	if err != nil {
+		return nil, err
 	}
 
 	client := &http.Client{}
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s/servicio?select=id,nombre", postgrestURL), nil)
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s/api/servicios", baseURL), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +139,7 @@ func obtenerServicios() ([]service, error) {
 		return nil, fmt.Errorf("error al obtener servicios: %d", resp.StatusCode)
 	}
 
-	var services []service
+	var services []servicio
 	err = json.NewDecoder(resp.Body).Decode(&services)
 	if err != nil {
 		return nil, err
@@ -131,17 +148,16 @@ func obtenerServicios() ([]service, error) {
 	return services, nil
 }
 
-// Get quotation data from PostgREST API
+// Get quotation data from Admin API
 func obtenerDatosDeCotizacion(cotizacionID int) (*cotizaciondetalle, error) {
-	postgrestURL, headers := InitializePostgrest()
-	if postgrestURL == "" {
-		return nil, fmt.Errorf("error getting API URL")
+	baseURL, headers, err := InitializeAdminAPI()
+	if err != nil {
+		return nil, err
 	}
 
 	client := &http.Client{}
 	req, err := http.NewRequest("GET",
-		fmt.Sprintf("%s/cotizacion?select=servicio(id,nombre),proyecto(id,nombre_proyecto)&id=eq.%d",
-			postgrestURL, cotizacionID), nil)
+		fmt.Sprintf("%s/api/cotizaciones/%d", baseURL, cotizacionID), nil)
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %v", err)
 	}
@@ -160,34 +176,27 @@ func obtenerDatosDeCotizacion(cotizacionID int) (*cotizaciondetalle, error) {
 		return nil, fmt.Errorf("error al obtener cotización (status %d): cotización ID %d no encontrada o no accesible", resp.StatusCode, cotizacionID)
 	}
 
-	var cotizaciones []cotizaciondetalle
-	err = json.NewDecoder(resp.Body).Decode(&cotizaciones)
+	// Admin API returns single object, not array
+	var cotizacion cotizaciondetalle
+	err = json.NewDecoder(resp.Body).Decode(&cotizacion)
 	if err != nil {
 		return nil, fmt.Errorf("error decoding response: %v", err)
 	}
 
-	if len(cotizaciones) == 0 {
-		return nil, fmt.Errorf("no se encontró cotización con ID %d. Verifique que el ID sea correcto y que la cotización tenga servicio y proyecto asignados", cotizacionID)
-	}
-
-	return &cotizaciones[0], nil
+	return &cotizacion, nil
 }
 
 // Search for clients by name
 func buscarClientes(nombre string) ([]Cliente, error) {
-	postgrestURL, headers := InitializePostgrest()
-	if postgrestURL == "" {
-		return nil, fmt.Errorf("error getting API URL")
+	baseURL, headers, err := InitializeAdminAPI()
+	if err != nil {
+		return nil, err
 	}
 
-	// Add wildcards for PostgreSQL ILIKE pattern matching and URL encode
-	searchPattern := fmt.Sprintf("*%s*", nombre)
-	encodedPattern := url.QueryEscape(searchPattern)
-
 	client := &http.Client{}
+	// Admin API search endpoint - using query parameter
 	req, err := http.NewRequest("GET",
-		fmt.Sprintf("%s/cliente?select=id,nombre,nombre_comercial&or=(nombre.ilike.%s,nombre_comercial.ilike.%s)",
-			postgrestURL, encodedPattern, encodedPattern), nil)
+		fmt.Sprintf("%s/api/clientes?search=%s", baseURL, url.QueryEscape(nombre)), nil)
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %v", err)
 	}
@@ -217,15 +226,14 @@ func buscarClientes(nombre string) ([]Cliente, error) {
 
 // Search for quotations by client ID
 func buscarCotizaciones(clienteID int) ([]CotizacionConRelaciones, error) {
-	postgrestURL, headers := InitializePostgrest()
-	if postgrestURL == "" {
-		return nil, fmt.Errorf("error getting API URL")
+	baseURL, headers, err := InitializeAdminAPI()
+	if err != nil {
+		return nil, err
 	}
 
 	client := &http.Client{}
 	req, err := http.NewRequest("GET",
-		fmt.Sprintf("%s/cotizacion?select=id,fecha,servicio(id,nombre),proyecto(id,nombre_proyecto)&id_cliente=eq.%d&estado=neq.GENERADA&order=id.desc",
-			postgrestURL, clienteID), nil)
+		fmt.Sprintf("%s/api/clientes/%d/cotizaciones", baseURL, clienteID), nil)
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %v", err)
 	}
@@ -260,50 +268,31 @@ type SchemaType struct {
 	} `json:"tipos"`
 }
 
-// Load folder schemas from JSON file in Nextcloud
+// Load folder schemas from local folder.json file
 func cargarEsquemas(tipoProyecto string) ([]string, error) {
-	// Download folder.json from Nextcloud /Apps/folder/
-	client := InitializeNextcloud()
-	if err := client.Connect(); err != nil {
-		return nil, fmt.Errorf("error connecting to Nextcloud: %w", err)
+	configPath := viper.GetString("config_path")
+	if configPath == "" {
+		home, _ := os.UserHomeDir()
+		configPath = filepath.Join(home, ".config", "orgm")
 	}
-
-	// Read folder.json from Nextcloud
-	reader, err := client.ReadStream("/Apps/folder/folder.json")
+	
+	folderJSONPath := filepath.Join(configPath, "folder.json")
+	data, err := os.ReadFile(folderJSONPath)
 	if err != nil {
-		return nil, fmt.Errorf("error reading folder.json from Nextcloud: %w", err)
+		return nil, fmt.Errorf("error leyendo folder.json: %w", err)
 	}
-	defer reader.Close()
-
-	// Read all content
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, fmt.Errorf("error reading folder.json content: %w", err)
-	}
-
+	
 	var schema SchemaType
 	err = json.Unmarshal(data, &schema)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing folder.json: %w", err)
 	}
-
+	
 	if tipoProyectoSchema, ok := schema.TiposProyecto[tipoProyecto]; ok {
 		return tipoProyectoSchema.Carpetas, nil
 	}
-
+	
 	return nil, fmt.Errorf("tipo de proyecto no encontrado en el esquema")
-}
-
-// Create folder structure based on schema
-func crearCarpeta(esquema []string, ruta string) error {
-	for _, carpeta := range esquema {
-		rutaCarpeta := filepath.Join(ruta, carpeta)
-		err := os.MkdirAll(rutaCarpeta, 0755)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // Generate a folder name for a project
@@ -317,18 +306,23 @@ func nombreCarpetaProyecto(cotizacion int) (string, error) {
 	return nombreProyecto, nil
 }
 
-// Create a project folder structure in Nextcloud /Proyectos
+// Create a project folder structure in local filesystem
 func crearCarpetaProyecto(cotizacion int) (string, error) {
 	nombreProyecto, err := nombreCarpetaProyecto(cotizacion)
 	if err != nil {
 		return "", err
 	}
 
-	// Create main project folder in Nextcloud /Proyectos
-	projectPath := "/Proyectos/" + nombreProyecto
-	err = CreateNewFolder("/Proyectos", nombreProyecto)
+	// Get base projects path from config or use default
+	basePath := viper.GetString("folder.base_path")
+	if basePath == "" {
+		basePath = "./Proyectos" // default
+	}
+
+	projectPath := filepath.Join(basePath, nombreProyecto)
+	err = os.MkdirAll(projectPath, 0755)
 	if err != nil {
-		return "", fmt.Errorf("error creating project folder in Nextcloud: %w", err)
+		return "", fmt.Errorf("error creating project folder: %w", err)
 	}
 
 	// Load folder schema and create subfolders
@@ -337,9 +331,10 @@ func crearCarpetaProyecto(cotizacion int) (string, error) {
 		return "", err
 	}
 
-	// Create subfolders in Nextcloud
+	// Create subfolders in local filesystem
 	for _, carpeta := range carpetas {
-		err = CreateNewFolder(projectPath, carpeta)
+		subfolderPath := filepath.Join(projectPath, carpeta)
+		err = os.MkdirAll(subfolderPath, 0755)
 		if err != nil {
 			return "", fmt.Errorf("error creating subfolder %s: %w", carpeta, err)
 		}

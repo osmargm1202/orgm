@@ -11,7 +11,7 @@ echo "🚀 Installing ORGM CLI for Linux..."
 INSTALL_DIR="$HOME/.local/bin"
 BINARY_URL="https://raw.githubusercontent.com/osmargm1202/orgm/main/orgm"
 BINARY_PATH="$INSTALL_DIR/orgm"
-WAILS_BINARY_URL="https://raw.githubusercontent.com/osmargm1202/orgm/main/orgm-prop"
+WAILS_BINARY_URL="https://raw.githubusercontent.com/osmargm1202/orgm/main/apps/prop/build/bin/orgm-prop"
 WAILS_BINARY_PATH="$INSTALL_DIR/orgm-prop"
 
 # Create installation directory if it doesn't exist
@@ -30,7 +30,7 @@ else
 fi
 
 # Download the Wails binary
-echo "📥 Downloading ORGM Wails binary..."
+echo "📥 Downloading ORGM orgm-prop binary..."
 if command -v curl >/dev/null 2>&1; then
     curl -fsSL "$WAILS_BINARY_URL" -o "$WAILS_BINARY_PATH"
 elif command -v wget >/dev/null 2>&1; then
@@ -76,11 +76,11 @@ echo "🧪 Testing installation..."
 if "$BINARY_PATH" version >/dev/null 2>&1; then
     echo "✅ ORGM CLI installed successfully!"
     echo "📍 Installed at: $BINARY_PATH"
-    echo "📍 Wails binary at: $WAILS_BINARY_PATH"
+    echo "📍 orgm-prop binary at: $WAILS_BINARY_PATH"
     echo ""
     echo "🎉 You can now use 'orgm' command!"
     echo "💡 Try: orgm --help"
-    echo "💡 Try: orgm prop wails (for GUI interface)"
+    echo "💡 Try: orgm prop orgm-prop (for GUI interface)"
 else
     echo "⚠️  Installation completed but unable to verify. Try running:"
     echo "   $BINARY_PATH version"

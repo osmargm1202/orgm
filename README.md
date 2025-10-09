@@ -16,7 +16,9 @@ Descarga e instala desde PowerShell o Command Prompt:
 ```powershell
 # PowerShell
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/osmargm1202/orgm/master/install.bat" -OutFile "install.bat"; .\install.bat; del install.bat
+```
 
+```
 # Command Prompt  
 powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/osmargm1202/orgm/master/install.bat' -OutFile 'install.bat'"; install.bat; del install.bat
 ```
@@ -29,7 +31,7 @@ Si prefieres instalar manualmente:
 ```bash
 mkdir -p ~/.local/bin
 curl -L https://raw.githubusercontent.com/osmargm1202/orgm/master/orgm -o ~/.local/bin/orgm
-curl -L https://raw.githubusercontent.com/osmargm1202/orgm/master/orgm-prop -o ~/.local/bin/orgm-prop
+curl -L https://raw.githubusercontent.com/osmargm1202/orgm/master/apps/prop/build/bin/orgm-prop -o ~/.local/bin/orgm-prop
 chmod +x ~/.local/bin/orgm
 chmod +x ~/.local/bin/orgm-prop
 ```
@@ -38,7 +40,7 @@ chmod +x ~/.local/bin/orgm-prop
 ```powershell
 mkdir "$env:USERPROFILE\.config\orgm" -Force
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/osmargm1202/orgm/master/orgm.exe" -OutFile "$env:USERPROFILE\.config\orgm\orgm.exe"
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/osmargm1202/orgm/master/orgm-prop.exe" -OutFile "$env:USERPROFILE\.config\orgm\orgm-prop.exe"
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/osmargm1202/orgm/master/apps/prop/build/bin/orgm-prop.exe" -OutFile "$env:USERPROFILE\.config\orgm\orgm-prop.exe"
 ```
 
 # 🔄 Actualización
@@ -88,27 +90,10 @@ La aplicación ORGM proporciona acceso a los siguientes endpoints de API:
 |----------|-------------|-----|
 | `/cot` | Gestión de cotizaciones | Crear, consultar y gestionar cotizaciones |
 | `/fac` | Gestión de facturas | Crear, consultar y gestionar facturas |
-| `/ai` | Servicios de Inteligencia Artificial | Interacciones con modelos GPT |
 
 ### Comandos Disponibles
 
 La aplicación incluye los siguientes comandos principales:
-
-#### Administración (`adm`)
-- **Clientes**: Gestión de clientes
-- **Proyectos**: Gestión de proyectos
-- **Cotizaciones**: Crear y gestionar cotizaciones
-- **Facturas**: Crear y gestionar facturas
-- **Folders**: Gestión de carpetas de proyecto
-- **Locations**: Gestión de ubicaciones
-- **PDF**: Operaciones con documentos PDF
-- **Presentaciones**: Gestión de presentaciones
-
-#### Inteligencia Artificial (`ai`)
-- **Conversaciones**: Interacción con modelos GPT
-- **Gestión de historial**: Guardar y cargar conversaciones
-- **Exportación**: Exportar conversaciones a TXT
-- **Configuraciones**: Múltiples configuraciones de AI
 
 #### Propuestas (`prop`)
 - **Interfaz gráfica con yad**: Gestión completa de propuestas con interfaz gráfica usando `yad`
@@ -129,7 +114,6 @@ La aplicación incluye los siguientes comandos principales:
 
 #### Otras Funcionalidades
 - **Check**: Verificación de conectividad a servicios
-- **Nextcloud**: Integración con Nextcloud
 - **Build**: Construcción y despliegue de la aplicación
 
 ### Verificación de Conectividad
@@ -150,8 +134,6 @@ Este comando verificará:
 La aplicación requiere un archivo de configuración TOML con las siguientes secciones:
 - `url.apis`: URL de los servicios de API
 - `url.postgrest`: URL de PostgREST
-- `nextcloud.*`: Configuración de Nextcloud
-- `cloudflare.*`: Credenciales de Cloudflare Access
 
 ### Gestión de Propuestas
 

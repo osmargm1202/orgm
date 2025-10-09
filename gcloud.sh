@@ -9,10 +9,10 @@ DISPLAY_NAME="Cuenta para Cloud Run"
 EMAIL="$ACCOUNT_NAME@$PROJECT_ID.iam.gserviceaccount.com"
 JSON_FILE="${ACCOUNT_NAME}.json"
 
-# 1. Crear la cuenta de servicio
-# gcloud iam service-accounts create "$ACCOUNT_NAME" \
-#     --display-name="$DISPLAY_NAME" \
-#     --project="$PROJECT_ID"
+1. Crear la cuenta de servicio
+gcloud iam service-accounts create "$ACCOUNT_NAME" \
+    --display-name="$DISPLAY_NAME" \
+    --project="$PROJECT_ID"
 
 # 2. Dar permisos para invocar todos los servicios de Cloud Run
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
