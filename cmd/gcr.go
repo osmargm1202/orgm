@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -22,6 +23,7 @@ func EnsureGCloudIDToken() (string, error) {
     // Try disk cache first
     if cachedTok, cachedExp, ok := loadCachedToken(); ok {
         if time.Unix(cachedExp, 0).After(time.Now().Add(2 * time.Minute)) {
+            fmt.Println("💾 Token obtenido utilizando el caché")
             return cachedTok, nil
         }
     }
@@ -37,12 +39,27 @@ func EnsureGCloudIDToken() (string, error) {
         home, _ := os.UserHomeDir()
         configPath = filepath.Join(home, ".config", "orgm")
     }
-    credFile := filepath.Join(configPath, "orgmdev_google.json")
 
-    // Validate credentials file exists
-    if _, err := os.Stat(credFile); err != nil {
-        return "", fmt.Errorf("no se encontró el archivo de credenciales: %s", credFile)
+    // Find any file ending with google.json
+    var credFile string
+    entries, err := os.ReadDir(configPath)
+    if err != nil {
+        return "", fmt.Errorf("error leyendo directorio de configuración: %v", err)
     }
+    
+    for _, entry := range entries {
+        if !entry.IsDir() && strings.HasSuffix(entry.Name(), "google.json") {
+            credFile = filepath.Join(configPath, entry.Name())
+            break
+        }
+    }
+    
+    if credFile == "" {
+        return "", fmt.Errorf("no se encontró ningún archivo que termine en 'google.json' en %s", configPath)
+    }
+
+    // Print which credentials file is being used
+    fmt.Printf("🔑 Usando credenciales de Google: %s\n", filepath.Base(credFile))
 
     ctx := context.Background()
 
@@ -55,7 +72,7 @@ func EnsureGCloudIDToken() (string, error) {
         }
         ts, err = idtoken.NewTokenSource(ctx, audience)
         if err != nil {
-            return "", fmt.Errorf("no se pudo crear TokenSource (fallback): %v")
+            return "", fmt.Errorf("no se pudo crear TokenSource (fallback): %v", err)
         }
     }
 

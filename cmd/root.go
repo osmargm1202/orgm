@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/osmargm1202/orgm/cmd/adm"
 	"github.com/osmargm1202/orgm/cmd/misc"
@@ -132,7 +133,7 @@ func updateFunc() {
 
 	// Download the installer
 	fmt.Printf("%s\n", inputs.InfoStyle.Render("📥 Downloading installer..."))
-	
+
 	resp, err := http.Get(installerURL)
 	if err != nil {
 		fmt.Printf("❌ Error downloading installer: %v\n", err)
@@ -171,23 +172,41 @@ func updateFunc() {
 		}
 	}
 
-	// Execute the installer
-	fmt.Printf("%s\n", inputs.InfoStyle.Render("🔧 Running installer..."))
-	
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		cmd = exec.Command("cmd", "/c", tempFile)
-	case "linux", "darwin":
-		cmd = exec.Command("bash", tempFile)
+	// Special handling for Windows: cannot replace running executable
+	if runtime.GOOS == "windows" {
+		fmt.Printf("%s\n", inputs.InfoStyle.Render("⚠️  On Windows, the updater cannot replace the running executable."))
+		fmt.Printf("%s\n", inputs.InfoStyle.Render("   The installer will open in a new window. Please CLOSE this terminal or any running orgm.exe before continuing the update."))
+		fmt.Printf("%s\n", inputs.InfoStyle.Render("   Press ENTER to continue and launch the installer..."))
+		fmt.Scanln()
+		// Start installer in a new window and exit this process
+		cmd := exec.Command("cmd", "/C", "start", "", tempFile)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Stdin = os.Stdin
+		err = cmd.Start()
+		// Clean up temporary file after a short delay (let installer copy itself if needed)
+		go func(f string) {
+			time.Sleep(30 * time.Second)
+			os.Remove(f)
+		}(tempFile)
+		if err != nil {
+			fmt.Printf("❌ Error launching installer: %v\n", err)
+			return
+		}
+		fmt.Printf("%s\n", inputs.SuccessStyle.Render("✅ Installer launched. Please follow the instructions in the new window."))
+		return
 	}
 
+	// For Linux/macOS, run installer directly
+	fmt.Printf("%s\n", inputs.InfoStyle.Render("🔧 Running installer..."))
+
+	cmd := exec.Command("bash", tempFile)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 
 	err = cmd.Run()
-	
+
 	// Clean up temporary file
 	os.Remove(tempFile)
 
@@ -198,7 +217,7 @@ func updateFunc() {
 
 	fmt.Printf("%s\n", inputs.SuccessStyle.Render("✅ ORGM updated successfully!"))
 	fmt.Printf("%s\n", inputs.InfoStyle.Render("💡 If this is your first time, you may need to open a new terminal or run:"))
-	
+
 	switch runtime.GOOS {
 	case "windows":
 		fmt.Printf("%s\n", inputs.InfoStyle.Render("   • Open a new Command Prompt or PowerShell"))

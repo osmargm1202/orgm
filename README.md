@@ -29,7 +29,7 @@ Si prefieres instalar manualmente:
 ```bash
 mkdir -p ~/.local/bin
 curl -L https://raw.githubusercontent.com/osmargm1202/orgm/master/orgm -o ~/.local/bin/orgm
-curl -L https://raw.githubusercontent.com/osmargm1202/orgm/master/prop/build/bin/orgm-prop -o ~/.local/bin/orgm-prop
+curl -L https://raw.githubusercontent.com/osmargm1202/orgm/master/orgm-prop -o ~/.local/bin/orgm-prop
 chmod +x ~/.local/bin/orgm
 chmod +x ~/.local/bin/orgm-prop
 ```
@@ -38,7 +38,7 @@ chmod +x ~/.local/bin/orgm-prop
 ```powershell
 mkdir "$env:USERPROFILE\.config\orgm" -Force
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/osmargm1202/orgm/master/orgm.exe" -OutFile "$env:USERPROFILE\.config\orgm\orgm.exe"
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/osmargm1202/orgm/master/prop/build/bin/orgm-prop.exe" -OutFile "$env:USERPROFILE\.config\orgm\orgm-prop.exe"
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/osmargm1202/orgm/master/orgm-prop.exe" -OutFile "$env:USERPROFILE\.config\orgm\orgm-prop.exe"
 ```
 
 # 🔄 Actualización

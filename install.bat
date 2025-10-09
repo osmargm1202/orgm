@@ -10,7 +10,7 @@ REM Variables
 set "INSTALL_DIR=%USERPROFILE%\.config\orgm"
 set "BINARY_URL=https://raw.githubusercontent.com/osmargm1202/orgm/main/orgm.exe"
 set "BINARY_PATH=%INSTALL_DIR%\orgm.exe"
-set "WAILS_BINARY_URL=https://raw.githubusercontent.com/osmargm1202/orgm/main/prop/build/bin/orgm-prop.exe"
+set "WAILS_BINARY_URL=https://raw.githubusercontent.com/osmargm1202/orgm/main/orgm-prop.exe"
 set "WAILS_BINARY_PATH=%INSTALL_DIR%\orgm-prop.exe"
 
 REM Create installation directory if it doesn't exist

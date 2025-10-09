@@ -11,7 +11,7 @@ echo "🚀 Installing ORGM CLI for Linux..."
 INSTALL_DIR="$HOME/.local/bin"
 BINARY_URL="https://raw.githubusercontent.com/osmargm1202/orgm/main/orgm"
 BINARY_PATH="$INSTALL_DIR/orgm"
-WAILS_BINARY_URL="https://raw.githubusercontent.com/osmargm1202/orgm/main/prop/build/bin/orgm-prop"
+WAILS_BINARY_URL="https://raw.githubusercontent.com/osmargm1202/orgm/main/orgm-prop"
 WAILS_BINARY_PATH="$INSTALL_DIR/orgm-prop"
 
 # Create installation directory if it doesn't exist

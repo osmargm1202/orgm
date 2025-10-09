@@ -25,6 +25,16 @@ var GobuildCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
+		// Build for Prop
+		if err := BuildProp(); err != nil {
+			os.Exit(1)
+		}
+
+		// Build for Prop Windows
+		if err := BuildPropWindows(); err != nil {
+			os.Exit(1)
+		}
+
 		fmt.Println("Build process completed successfully!")
 		fmt.Println("Generated files:")
 		fmt.Println("  - orgm (Linux binary)")
@@ -63,6 +73,33 @@ func BuildWindows() error {
 		return err
 	}
 	fmt.Printf("Successfully built for Windows: %s \n %s", "orgm.exe", output)
+	return nil
+}
+
+func BuildProp() error {
+	fmt.Println("Building for Prop...")
+	goCmd := exec.Command("go", "build", "-o", "orgm-prop", ".")
+	goCmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH=amd64")
+	output, err := goCmd.CombinedOutput()
+	if err != nil {
+		fmt.Printf("Error building for Prop: %s \n %s", err, output)
+		return err
+	}
+
+	fmt.Printf("Successfully built for Prop: %s \n %s", "orgm-prop", output)
+	return nil
+}
+
+func BuildPropWindows() error {
+	fmt.Println("Building for Prop Windows...")
+	goCmd := exec.Command("go", "build", "-o", "orgm-prop.exe", ".")
+	goCmd.Env = append(os.Environ(), "GOOS=windows", "GOARCH=amd64", "CGO_ENABLED=1", "CC=x86_64-w64-mingw32-gcc")
+	output, err := goCmd.CombinedOutput()
+	if err != nil {
+		fmt.Printf("Error building for Prop Windows: %s \n %s", err, output)
+		return err
+	}
+	fmt.Printf("Successfully built for Prop Windows: %s \n %s", "orgm-prop.exe", output)
 	return nil
 }
 

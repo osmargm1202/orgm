@@ -1,0 +1,1117 @@
+<!DOCTYPE html>
+<html lang="es" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestor de Propuestas</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    
+    <style>
+        :root {
+            /* Tokyo Night Dark Theme */
+            --bg-primary: #1a1b26;
+            --bg-secondary: #24283b;
+            --bg-tertiary: #2d3142;
+            --text-primary: #c0caf5;
+            --text-secondary: #9aa5ce;
+            --text-muted: #565f89;
+            --border-color: #414868;
+            --accent-blue: #7aa2f7;
+            --accent-green: #9ece6a;
+            --accent-yellow: #e0af68;
+            --accent-red: #f7768e;
+            --accent-purple: #bb9af7;
+        }
+
+        body {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 14px;
+        }
+
+        .navbar {
+            background: var(--bg-secondary) !important;
+            border-bottom: 1px solid var(--border-color);
+            padding: 0.5rem 1rem;
+        }
+
+        .navbar-brand {
+            font-weight: 600;
+            color: var(--text-primary) !important;
+        }
+
+        .logo {
+            height: 32px;
+            width: auto;
+            margin-right: 8px;
+        }
+
+        /* Custom Button Styles */
+        .btn-primary {
+            background: linear-gradient(135deg, #0044cc, #0088ff);
+            color: #ffffff;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.3s ease, background 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            text-decoration: none;
+            box-shadow: 0 0 10px rgba(0, 150, 255, 0.6);
+            font-size: 13px;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 0 15px rgba(0, 150, 255, 0.9);
+            background: linear-gradient(135deg, #0055ff, #00aaff);
+            color: #ffffff;
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: var(--text-secondary);
+            border: 1px solid var(--border-color);
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            text-decoration: none;
+            font-size: 13px;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(122, 162, 247, 0.1);
+            border-color: var(--accent-blue);
+            transform: translateY(-1px);
+            color: var(--text-primary);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        .btn-warning {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        .btn-info {
+            background: linear-gradient(135deg, #06b6d4, #0891b2);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        /* Card Styles */
+        .card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+        }
+
+        .card-header {
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border-color);
+            padding: 0.75rem 1rem;
+        }
+
+        .card-body {
+            padding: 1rem;
+        }
+
+        /* Form Controls */
+        .form-control {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            font-size: 13px;
+            padding: 0.5rem 0.75rem;
+        }
+
+        .form-control:focus {
+            background: var(--bg-tertiary);
+            border-color: var(--accent-blue);
+            color: var(--text-primary);
+            box-shadow: 0 0 0 0.2rem rgba(122, 162, 247, 0.25);
+        }
+
+        .form-control::placeholder {
+            color: var(--text-muted);
+        }
+
+        .form-label {
+            color: var(--text-primary);
+            font-weight: 500;
+            font-size: 13px;
+            margin-bottom: 0.25rem;
+        }
+
+        /* Table Styles */
+        .table {
+            color: var(--text-primary);
+            font-size: 13px;
+        }
+
+        .table-dark {
+            --bs-table-bg: var(--bg-tertiary);
+            --bs-table-border-color: var(--border-color);
+        }
+
+        .table-hover tbody tr:hover {
+            background-color: rgba(122, 162, 247, 0.1);
+        }
+
+        /* Modal Styles */
+        .modal-content {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+        }
+
+        .modal-header {
+            border-bottom: 1px solid var(--border-color);
+            background: var(--bg-tertiary);
+        }
+
+        .modal-footer {
+            border-top: 1px solid var(--border-color);
+        }
+
+        /* Compact spacing */
+        .container-fluid {
+            padding: 0.75rem;
+        }
+
+        .row {
+            margin-bottom: 0.75rem;
+        }
+
+        .col {
+            padding: 0.25rem;
+        }
+
+        /* Status messages */
+        .status-message {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 0.75rem 1rem;
+            border-radius: 6px;
+            font-weight: 500;
+            font-size: 13px;
+            z-index: 1050;
+            max-width: 300px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .status-success {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--accent-green);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .status-error {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--accent-red);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        .status-info {
+            background: rgba(122, 162, 247, 0.2);
+            color: var(--accent-blue);
+            border: 1px solid rgba(122, 162, 247, 0.3);
+        }
+
+        /* Loading spinner */
+        .spinner-border-sm {
+            width: 1rem;
+            height: 1rem;
+        }
+
+        /* Compact proposal table */
+        .proposal-row {
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+
+        .proposal-row:hover {
+            background-color: rgba(122, 162, 247, 0.1) !important;
+        }
+
+        .proposal-row.selected {
+            background-color: rgba(122, 162, 247, 0.2) !important;
+        }
+
+        /* Action buttons grid */
+        .action-buttons {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 0.5rem;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .action-buttons {
+                grid-template-columns: 1fr;
+            }
+            
+            .container-fluid {
+                padding: 0.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg">
+        <div class="container-fluid">
+            <a class="navbar-brand d-flex align-items-center" href="#">
+                <img src="orgm.png" alt="ORGM Logo" class="logo">
+                Gestor de Propuestas
+            </a>
+            <button class="btn btn-primary" onclick="showNewProposalModal()">
+                <i class="bi bi-plus-circle"></i>
+                Nueva Propuesta
+            </button>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Search Section -->
+            <div class="col-12 mb-3">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="bi bi-search"></i>
+                            Buscar Propuestas
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <input type="text" id="searchInput" class="form-control" placeholder="Buscar por título o subtítulo...">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Proposals Table -->
+            <div class="col-12 mb-3">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">
+                            <i class="bi bi-list-ul"></i>
+                            Propuestas Existentes
+                        </h6>
+                        <small class="text-muted" id="proposalCount">0 propuestas</small>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-dark table-hover mb-0">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 80px;">ID</th>
+                                        <th>Título</th>
+                                        <th>Subtítulo</th>
+                                        <th style="width: 120px;">Fecha</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="proposalsTableBody">
+                                    <tr id="loadingRow">
+                                        <td colspan="4" class="text-center py-3">
+                                            <div class="spinner-border spinner-border-sm text-primary" role="status">
+                                                <span class="visually-hidden">Cargando...</span>
+                                            </div>
+                                            <span class="ms-2">Cargando propuestas...</span>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Actions Section -->
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="bi bi-lightning"></i>
+                            Acciones Disponibles
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <!-- Selected Proposal Info -->
+                        <div id="selectedInfo" class="mb-3">
+                            <div class="alert alert-info mb-3">
+                                <i class="bi bi-info-circle"></i>
+                                <strong>Ninguna propuesta seleccionada</strong><br>
+                                <small>Selecciona una propuesta de la tabla para ver las opciones disponibles.</small>
+                            </div>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div id="actionButtons" class="action-buttons" style="display: none;">
+                            <!-- Document Actions -->
+                            <button class="btn btn-info" onclick="viewProposal('md')">
+                                <i class="bi bi-file-text"></i>
+                                Ver MD
+                            </button>
+                            <button class="btn btn-success" onclick="viewProposal('html')">
+                                <i class="bi bi-file-earmark-code"></i>
+                                Ver HTML
+                            </button>
+                            <button class="btn btn-warning" onclick="viewProposal('pdf')">
+                                <i class="bi bi-file-pdf"></i>
+                                Ver PDF
+                            </button>
+                            
+                            <!-- Generation Actions -->
+                            <button class="btn btn-primary" onclick="generateHTML()">
+                                <i class="bi bi-file-earmark-code"></i>
+                                Generar HTML
+                            </button>
+                            <button class="btn btn-primary" onclick="generatePDF()">
+                                <i class="bi bi-file-pdf"></i>
+                                Generar PDF
+                            </button>
+                            
+                            <!-- Modification Actions -->
+                            <button class="btn btn-secondary" onclick="regenerateProposal()">
+                                <i class="bi bi-arrow-clockwise"></i>
+                                Regenerar
+                            </button>
+                            <button class="btn btn-info" onclick="updateTitleSubtitle()">
+                                <i class="bi bi-pencil"></i>
+                                Cambiar título/subtítulo
+                            </button>
+                            <button class="btn btn-warning" onclick="modifyProposal()">
+                                <i class="bi bi-gear"></i>
+                                Modificar propuesta
+                            </button>
+                            
+                            <!-- Utility Actions -->
+                            <button class="btn btn-success" onclick="downloadAllFiles()">
+                                <i class="bi bi-download"></i>
+                                Descargar archivos
+                            </button>
+                            <button class="btn btn-danger" onclick="deleteProposal()">
+                                <i class="bi bi-trash"></i>
+                                Eliminar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para Nueva Propuesta -->
+    <div class="modal fade" id="newProposalModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-plus-circle"></i>
+                        Nueva Propuesta
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form id="newProposalForm">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="title" class="form-label">Título:</label>
+                            <input type="text" id="title" name="title" class="form-control" value="Propuesta de Servicios" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="subtitle" class="form-label">Subtítulo:</label>
+                            <input type="text" id="subtitle" name="subtitle" class="form-control" placeholder="Ingresa el subtítulo">
+                        </div>
+                        <div class="mb-3">
+                            <label for="prompt" class="form-label">Prompt:</label>
+                            <textarea id="prompt" name="prompt" class="form-control" rows="4" placeholder="Escribe aquí tu prompt..." required></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Crear Propuesta</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para Modificar Propuesta -->
+    <div class="modal fade" id="modifyProposalModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-gear"></i>
+                        Modificar Propuesta
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form id="modifyProposalForm">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="modifyTitle" class="form-label">Título:</label>
+                            <input type="text" id="modifyTitle" name="title" class="form-control" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="modifySubtitle" class="form-label">Subtítulo:</label>
+                            <input type="text" id="modifySubtitle" name="subtitle" class="form-control">
+                        </div>
+                        <div class="mb-3">
+                            <label for="modifyPrompt" class="form-label">Prompt:</label>
+                            <textarea id="modifyPrompt" name="prompt" class="form-control" rows="4" required></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Modificar Propuesta</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para Regenerar Propuesta -->
+    <div class="modal fade" id="regenerateProposalModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-arrow-clockwise"></i>
+                        Regenerar Propuesta
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form id="regenerateProposalForm">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="regenerateTitle" class="form-label">Título:</label>
+                            <input type="text" id="regenerateTitle" name="title" class="form-control" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="regenerateSubtitle" class="form-label">Subtítulo:</label>
+                            <input type="text" id="regenerateSubtitle" name="subtitle" class="form-control">
+                        </div>
+                        <div class="mb-3">
+                            <label for="regeneratePrompt" class="form-label">Prompt:</label>
+                            <textarea id="regeneratePrompt" name="prompt" class="form-control" rows="4" required></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Regenerar Propuesta</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para Actualizar Título/Subtítulo -->
+    <div class="modal fade" id="updateTitleSubtitleModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-pencil"></i>
+                        Actualizar Título/Subtítulo
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form id="updateTitleSubtitleForm">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="updateTitle" class="form-label">Título:</label>
+                            <input type="text" id="updateTitle" name="title" class="form-control" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="updateSubtitle" class="form-label">Subtítulo:</label>
+                            <input type="text" id="updateSubtitle" name="subtitle" class="form-control">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Actualizar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para Generar PDF -->
+    <div class="modal fade" id="generatePDFModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-file-pdf"></i>
+                        Generar PDF
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="pdfMode" class="form-label">Modo de impresión:</label>
+                        <select id="pdfMode" class="form-control">
+                            <option value="normal">Normal</option>
+                            <option value="dapec">Dapec</option>
+                            <option value="oscuro">Oscuro</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-primary" onclick="confirmGeneratePDF()">Generar PDF</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Confirmación -->
+    <div class="modal fade" id="confirmModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="confirmTitle">Confirmar Acción</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p id="confirmMessage">¿Estás seguro de que deseas realizar esta acción?</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-danger" id="confirmButton" onclick="confirmAction()">Confirmar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+        // Variables globales
+        let proposals = [];
+        let filteredProposals = [];
+        let selectedProposal = null;
+        let currentAction = null;
+
+        // Inicialización
+        document.addEventListener('DOMContentLoaded', function() {
+            loadProposals();
+            setupEventListeners();
+        });
+
+        // Configurar event listeners
+        function setupEventListeners() {
+            // Búsqueda
+            document.getElementById('searchInput').addEventListener('input', function(e) {
+                filterProposals(e.target.value);
+            });
+
+            // Formularios
+            document.getElementById('newProposalForm').addEventListener('submit', handleNewProposal);
+            document.getElementById('modifyProposalForm').addEventListener('submit', handleModifyProposal);
+            document.getElementById('regenerateProposalForm').addEventListener('submit', handleRegenerateProposal);
+            document.getElementById('updateTitleSubtitleForm').addEventListener('submit', handleUpdateTitleSubtitle);
+        }
+
+        // Cargar propuestas
+        async function loadProposals() {
+            try {
+                const response = await window.go.main.App.GetProposals();
+                proposals = response || [];
+                filteredProposals = [...proposals];
+                renderProposals();
+            } catch (error) {
+                console.error('Error cargando propuestas:', error);
+                showMessage('Error cargando propuestas: ' + error.message, 'error');
+            }
+        }
+
+        // Filtrar propuestas
+        function filterProposals(searchText) {
+            if (!searchText.trim()) {
+                filteredProposals = [...proposals];
+            } else {
+                const search = searchText.toLowerCase();
+                filteredProposals = proposals.filter(proposal => 
+                    proposal.title.toLowerCase().includes(search) ||
+                    proposal.subtitle.toLowerCase().includes(search)
+                );
+            }
+            renderProposals();
+        }
+
+        // Renderizar propuestas
+        function renderProposals() {
+            const tbody = document.getElementById('proposalsTableBody');
+            const countElement = document.getElementById('proposalCount');
+            
+            tbody.innerHTML = '';
+            countElement.textContent = `${filteredProposals.length} propuestas`;
+
+            if (filteredProposals.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="4" class="text-center py-3 text-muted">
+                            <i class="bi bi-inbox"></i>
+                            No hay propuestas disponibles
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            filteredProposals.forEach(proposal => {
+                const row = document.createElement('tr');
+                row.className = 'proposal-row';
+                row.onclick = () => selectProposal(proposal);
+                
+                const date = new Date(proposal.created_at).toLocaleDateString('es-ES', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                });
+
+                row.innerHTML = `
+                    <td><span class="badge bg-secondary">${proposal.id}</span></td>
+                    <td>${proposal.title}</td>
+                    <td>${proposal.subtitle || 'Sin subtítulo'}</td>
+                    <td><small class="text-muted">${date}</small></td>
+                `;
+
+                tbody.appendChild(row);
+            });
+        }
+
+        // Seleccionar propuesta
+        function selectProposal(proposal) {
+            selectedProposal = proposal;
+            
+            // Actualizar UI
+            document.querySelectorAll('.proposal-row').forEach(row => {
+                row.classList.remove('selected');
+            });
+            event.target.closest('.proposal-row').classList.add('selected');
+
+            // Mostrar información seleccionada
+            const selectedInfo = document.getElementById('selectedInfo');
+            selectedInfo.innerHTML = `
+                <div class="alert alert-info mb-3">
+                    <h6 class="mb-1">${proposal.title}</h6>
+                    <small class="text-muted">
+                        <strong>Subtítulo:</strong> ${proposal.subtitle || 'Sin subtítulo'}<br>
+                        <strong>Creada:</strong> ${new Date(proposal.created_at).toLocaleString('es-ES')}<br>
+                        <strong>ID:</strong> ${proposal.id}
+                    </small>
+                </div>
+            `;
+
+            // Mostrar botones de acción
+            document.getElementById('actionButtons').style.display = 'grid';
+        }
+
+        // Mostrar modal de nueva propuesta
+        function showNewProposalModal() {
+            const modal = new bootstrap.Modal(document.getElementById('newProposalModal'));
+            modal.show();
+            document.getElementById('title').focus();
+        }
+
+        // Manejar nueva propuesta
+        async function handleNewProposal(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(e.target);
+            const proposal = {
+                title: formData.get('title'),
+                subtitle: formData.get('subtitle'),
+                prompt: formData.get('prompt'),
+                model: 'gpt-5-chat-latest'
+            };
+
+            try {
+                showMessage('Creando propuesta...', 'info');
+                const response = await window.go.main.App.CreateProposal(proposal);
+                
+                if (response && response.id) {
+                    showMessage('Propuesta creada exitosamente!', 'success');
+                    bootstrap.Modal.getInstance(document.getElementById('newProposalModal')).hide();
+                    e.target.reset();
+                    loadProposals();
+                } else {
+                    showMessage('Error creando propuesta', 'error');
+                }
+            } catch (error) {
+                console.error('Error creando propuesta:', error);
+                showMessage('Error creando propuesta: ' + error.message, 'error');
+            }
+        }
+
+        // Ver propuesta
+        async function viewProposal(format) {
+            if (!selectedProposal) return;
+
+            try {
+                showMessage(`Descargando ${format.toUpperCase()}...`, 'info');
+                const response = await window.go.main.App.DownloadProposal(selectedProposal.id, format);
+                
+                if (response && response.success) {
+                    showMessage(`${format.toUpperCase()} descargado exitosamente!`, 'success');
+                } else {
+                    showMessage(`Error descargando ${format.toUpperCase()}`, 'error');
+                }
+            } catch (error) {
+                console.error(`Error descargando ${format}:`, error);
+                showMessage(`Error descargando ${format}: ` + error.message, 'error');
+            }
+        }
+
+        // Generar HTML
+        async function generateHTML() {
+            if (!selectedProposal) return;
+
+            try {
+                showMessage('Generando HTML...', 'info');
+                const response = await window.go.main.App.GenerateHTML(selectedProposal.id);
+                
+                if (response && response.success) {
+                    showMessage('HTML generado exitosamente!', 'success');
+                    loadProposals(); // Recargar para actualizar URLs
+                } else {
+                    showMessage('Error generando HTML', 'error');
+                }
+            } catch (error) {
+                console.error('Error generando HTML:', error);
+                showMessage('Error generando HTML: ' + error.message, 'error');
+            }
+        }
+
+        // Generar PDF
+        function generatePDF() {
+            if (!selectedProposal) return;
+            const modal = new bootstrap.Modal(document.getElementById('generatePDFModal'));
+            modal.show();
+        }
+
+        // Confirmar generar PDF
+        async function confirmGeneratePDF() {
+            if (!selectedProposal) return;
+
+            const mode = document.getElementById('pdfMode').value;
+
+            try {
+                showMessage('Generando PDF...', 'info');
+                const response = await window.go.main.App.GeneratePDF(selectedProposal.id, mode);
+                
+                if (response && response.success) {
+                    showMessage('PDF generado exitosamente!', 'success');
+                    bootstrap.Modal.getInstance(document.getElementById('generatePDFModal')).hide();
+                    loadProposals(); // Recargar para actualizar URLs
+                } else {
+                    showMessage('Error generando PDF', 'error');
+                }
+            } catch (error) {
+                console.error('Error generando PDF:', error);
+                showMessage('Error generando PDF: ' + error.message, 'error');
+            }
+        }
+
+        // Regenerar propuesta
+        function regenerateProposal() {
+            if (!selectedProposal) return;
+
+            document.getElementById('regenerateTitle').value = selectedProposal.title;
+            document.getElementById('regenerateSubtitle').value = selectedProposal.subtitle || '';
+            document.getElementById('regeneratePrompt').value = selectedProposal.prompt || '';
+            
+            const modal = new bootstrap.Modal(document.getElementById('regenerateProposalModal'));
+            modal.show();
+        }
+
+        // Manejar regeneración de propuesta
+        async function handleRegenerateProposal(e) {
+            e.preventDefault();
+            
+            if (!selectedProposal) return;
+
+            const formData = new FormData(e.target);
+            const updates = {
+                title: formData.get('title'),
+                subtitle: formData.get('subtitle'),
+                prompt: formData.get('prompt')
+            };
+
+            try {
+                showMessage('Regenerando propuesta...', 'info');
+                const response = await window.go.main.App.RegenerateProposal(
+                    selectedProposal.id,
+                    updates.title,
+                    updates.subtitle,
+                    updates.prompt
+                );
+                
+                if (response && response.success) {
+                    showMessage('Propuesta regenerada exitosamente!', 'success');
+                    bootstrap.Modal.getInstance(document.getElementById('regenerateProposalModal')).hide();
+                    loadProposals();
+                } else {
+                    showMessage('Error regenerando propuesta', 'error');
+                }
+            } catch (error) {
+                console.error('Error regenerando propuesta:', error);
+                showMessage('Error regenerando propuesta: ' + error.message, 'error');
+            }
+        }
+
+        // Actualizar título/subtítulo
+        function updateTitleSubtitle() {
+            if (!selectedProposal) return;
+
+            document.getElementById('updateTitle').value = selectedProposal.title;
+            document.getElementById('updateSubtitle').value = selectedProposal.subtitle || '';
+            
+            const modal = new bootstrap.Modal(document.getElementById('updateTitleSubtitleModal'));
+            modal.show();
+        }
+
+        // Manejar actualización de título/subtítulo
+        async function handleUpdateTitleSubtitle(e) {
+            e.preventDefault();
+            
+            if (!selectedProposal) return;
+
+            const formData = new FormData(e.target);
+            const updates = {
+                title: formData.get('title'),
+                subtitle: formData.get('subtitle')
+            };
+
+            try {
+                showMessage('Actualizando título/subtítulo...', 'info');
+                const response = await window.go.main.App.UpdateTitleSubtitle(
+                    selectedProposal.id,
+                    updates.title,
+                    updates.subtitle
+                );
+                
+                if (response && response.success) {
+                    showMessage('Título/Subtítulo actualizados exitosamente!', 'success');
+                    bootstrap.Modal.getInstance(document.getElementById('updateTitleSubtitleModal')).hide();
+                    loadProposals();
+                } else {
+                    showMessage('Error actualizando título/subtítulo', 'error');
+                }
+            } catch (error) {
+                console.error('Error actualizando título/subtítulo:', error);
+                showMessage('Error actualizando título/subtítulo: ' + error.message, 'error');
+            }
+        }
+
+        // Modificar propuesta
+        function modifyProposal() {
+            if (!selectedProposal) return;
+
+            document.getElementById('modifyTitle').value = selectedProposal.title;
+            document.getElementById('modifySubtitle').value = selectedProposal.subtitle || '';
+            document.getElementById('modifyPrompt').value = selectedProposal.prompt || '';
+            
+            const modal = new bootstrap.Modal(document.getElementById('modifyProposalModal'));
+            modal.show();
+        }
+
+        // Manejar modificación de propuesta
+        async function handleModifyProposal(e) {
+            e.preventDefault();
+            
+            if (!selectedProposal) return;
+
+            const formData = new FormData(e.target);
+            const updates = {
+                title: formData.get('title'),
+                subtitle: formData.get('subtitle'),
+                prompt: formData.get('prompt')
+            };
+
+            try {
+                showMessage('Modificando propuesta...', 'info');
+                const response = await window.go.main.App.ModifyProposal(
+                    selectedProposal.id,
+                    updates.title,
+                    updates.subtitle,
+                    updates.prompt
+                );
+                
+                if (response && response.success) {
+                    showMessage('Propuesta modificada exitosamente!', 'success');
+                    bootstrap.Modal.getInstance(document.getElementById('modifyProposalModal')).hide();
+                    loadProposals();
+                } else {
+                    showMessage('Error modificando propuesta', 'error');
+                }
+            } catch (error) {
+                console.error('Error modificando propuesta:', error);
+                showMessage('Error modificando propuesta: ' + error.message, 'error');
+            }
+        }
+
+        // Descargar todos los archivos
+        async function downloadAllFiles() {
+            if (!selectedProposal) return;
+
+            try {
+                showMessage('Descargando archivos...', 'info');
+                
+                // Descargar MD
+                const mdResponse = await window.go.main.App.DownloadProposal(selectedProposal.id, 'md');
+                if (mdResponse && mdResponse.success) {
+                    showMessage('MD descargado', 'success');
+                }
+                
+                // Intentar descargar HTML
+                const htmlResponse = await window.go.main.App.DownloadProposal(selectedProposal.id, 'html');
+                if (htmlResponse && htmlResponse.success) {
+                    showMessage('HTML descargado', 'success');
+                }
+                
+                // Intentar descargar PDF
+                const pdfResponse = await window.go.main.App.DownloadProposal(selectedProposal.id, 'pdf');
+                if (pdfResponse && pdfResponse.success) {
+                    showMessage('PDF descargado', 'success');
+                }
+                
+                showMessage('Descarga completada!', 'success');
+            } catch (error) {
+                console.error('Error descargando archivos:', error);
+                showMessage('Error descargando archivos: ' + error.message, 'error');
+            }
+        }
+
+        // Eliminar propuesta
+        function deleteProposal() {
+            if (!selectedProposal) return;
+
+            showConfirmModal(
+                'Eliminar Propuesta',
+                '¿Estás seguro de que deseas eliminar esta propuesta? Esta acción no se puede deshacer.',
+                async () => {
+                    try {
+                        showMessage('Eliminando propuesta...', 'info');
+                        const response = await window.go.main.App.DeleteProposal(selectedProposal.id);
+                        
+                        if (response && response.success) {
+                            showMessage('Propuesta eliminada exitosamente!', 'success');
+                            selectedProposal = null;
+                            document.getElementById('actionButtons').style.display = 'none';
+                            document.getElementById('selectedInfo').innerHTML = `
+                                <div class="alert alert-info mb-3">
+                                    <i class="bi bi-info-circle"></i>
+                                    <strong>Ninguna propuesta seleccionada</strong><br>
+                                    <small>Selecciona una propuesta de la tabla para ver las opciones disponibles.</small>
+                                </div>
+                            `;
+                            loadProposals();
+                        } else {
+                            showMessage('Error eliminando propuesta', 'error');
+                        }
+                    } catch (error) {
+                        console.error('Error eliminando propuesta:', error);
+                        showMessage('Error eliminando propuesta: ' + error.message, 'error');
+                    }
+                }
+            );
+        }
+
+        // Mostrar modal de confirmación
+        function showConfirmModal(title, message, callback) {
+            document.getElementById('confirmTitle').textContent = title;
+            document.getElementById('confirmMessage').textContent = message;
+            currentAction = callback;
+            const modal = new bootstrap.Modal(document.getElementById('confirmModal'));
+            modal.show();
+        }
+
+        // Confirmar acción
+        function confirmAction() {
+            if (currentAction) {
+                currentAction();
+                currentAction = null;
+            }
+            bootstrap.Modal.getInstance(document.getElementById('confirmModal')).hide();
+        }
+
+        // Mostrar mensaje
+        function showMessage(message, type) {
+            // Crear elemento de mensaje
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `status-message status-${type}`;
+            messageDiv.innerHTML = `
+                <i class="bi bi-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-triangle' : 'info-circle'}"></i>
+                ${message}
+            `;
+
+            // Calcular posición vertical basada en mensajes existentes
+            const existingMessages = document.querySelectorAll('.status-message');
+            const topOffset = 20 + (existingMessages.length * 60); // 60px de separación
+            messageDiv.style.top = `${topOffset}px`;
+
+            // Agregar al body como overlay
+            document.body.appendChild(messageDiv);
+
+            // Remover después de 4 segundos
+            setTimeout(() => {
+                if (messageDiv.parentNode) {
+                    messageDiv.style.opacity = '0';
+                    messageDiv.style.transform = 'translateX(100%)';
+                    setTimeout(() => {
+                        if (messageDiv.parentNode) {
+                            messageDiv.parentNode.removeChild(messageDiv);
+                        }
+                    }, 300);
+                }
+            }, 4000);
+        }
+    </script>
+</body>
+</html>
