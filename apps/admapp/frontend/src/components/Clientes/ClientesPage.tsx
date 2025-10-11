@@ -264,7 +264,7 @@ const ClientesPage: React.FC = () => {
   };
 
   return (
-    <div style={{ maxHeight: '100vh', overflowY: 'auto' }}>
+    <div style={{ maxHeight: '100vh', overflowY: 'auto', paddingBottom: '60px' }}>
       <h2 className="mb-4">
         <i className="bi bi-people me-2"></i>
         Gestión de Clientes
@@ -296,6 +296,7 @@ const ClientesPage: React.FC = () => {
 
       {/* Cliente Form - Only show when showForm is true */}
       {showForm && (
+        <div style={{ marginBottom: '80px' }}>
         <ClienteForm
           cliente={listState.selectedCliente}
           isNew={formState.isNew}
@@ -307,6 +308,7 @@ const ClientesPage: React.FC = () => {
           onDelete={handleDelete}
           onLogoChange={handleLogoChange}
         />
+        </div>
       )}
     </div>
   );

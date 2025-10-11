@@ -1,12 +1,10 @@
 import React, { useState } from 'react';
 import Header from './Header';
 import Sidebar from './Sidebar';
+import ClientesPage from './Clientes/ClientesPage';
+import ProyectosPage from './Proyectos/ProyectosPage';
 
-interface LayoutProps {
-  children: React.ReactNode;
-}
-
-const Layout: React.FC<LayoutProps> = ({ children }) => {
+const Layout: React.FC = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeMenu, setActiveMenu] = useState('clientes');
 
@@ -16,6 +14,17 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   const handleMenuSelect = (menuId: string) => {
     setActiveMenu(menuId);
+  };
+
+  const renderActivePage = () => {
+    switch (activeMenu) {
+      case 'clientes':
+        return <ClientesPage />;
+      case 'proyectos':
+        return <ProyectosPage />;
+      default:
+        return <ClientesPage />;
+    }
   };
 
   return (
@@ -34,7 +43,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           className={`main-content ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}
         >
           <div className="p-4">
-            {children}
+            {renderActivePage()}
           </div>
         </main>
       </div>

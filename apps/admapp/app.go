@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/osmargm1202/orgm/cmd"
 	"github.com/osmargm1202/orgm/pkg/admappapi"
@@ -270,4 +271,109 @@ func (a *App) OpenFile() map[string]interface{} {
 		return map[string]interface{}{"success": false, "error": "No file selected"}
 	}
 	return map[string]interface{}{"success": true, "data": file}
+}
+
+// GetProyectos returns projects for a specific client
+func (a *App) GetProyectos(idCliente int, incluirInactivos bool) map[string]interface{} {
+	fmt.Printf("🔍 GetProyectos llamado con idCliente: %d, incluirInactivos: %v\n", idCliente, incluirInactivos)
+	proyectos, err := a.client.GetProyectos(idCliente, incluirInactivos)
+	if err != nil {
+		fmt.Printf("❌ Error en GetProyectos: %v\n", err)
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	fmt.Printf("✅ GetProyectos exitoso, %d proyectos encontrados\n", len(proyectos))
+	return map[string]interface{}{"success": true, "data": proyectos}
+}
+
+// GetProyectoByID returns a specific project by ID
+func (a *App) GetProyectoByID(id int) map[string]interface{} {
+	proyecto, err := a.client.GetProyectoByID(id)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	return map[string]interface{}{"success": true, "data": proyecto}
+}
+
+// CreateProyecto creates a new project
+func (a *App) CreateProyecto(idCliente int, nombreProyecto, ubicacion, descripcion string) map[string]interface{} {
+	request := admappapi.CreateProyectoRequest{
+		IDCliente:      idCliente,
+		NombreProyecto: nombreProyecto,
+		Ubicacion:      ubicacion,
+		Descripcion:    descripcion,
+	}
+	
+	proyecto, err := a.client.CreateProyecto(request)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	return map[string]interface{}{"success": true, "data": proyecto}
+}
+
+// UpdateProyecto updates an existing project
+func (a *App) UpdateProyecto(id int, nombreProyecto, ubicacion, descripcion string) map[string]interface{} {
+	request := admappapi.UpdateProyectoRequest{
+		NombreProyecto: nombreProyecto,
+		Ubicacion:      ubicacion,
+		Descripcion:    descripcion,
+	}
+	
+	proyecto, err := a.client.UpdateProyecto(id, request)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	return map[string]interface{}{"success": true, "data": proyecto}
+}
+
+// DeleteProyecto soft deletes a project
+func (a *App) DeleteProyecto(id int) map[string]interface{} {
+	err := a.client.DeleteProyecto(id)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	return map[string]interface{}{"success": true}
+}
+
+// RestoreProyecto restores a soft-deleted project
+func (a *App) RestoreProyecto(id int) map[string]interface{} {
+	err := a.client.RestoreProyecto(id)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	return map[string]interface{}{"success": true}
+}
+
+// CreateCotizacionFromProyecto creates a cotización from a project with default values
+func (a *App) CreateCotizacionFromProyecto(proyectoId, idServicio int) map[string]interface{} {
+	// Get project details first
+	proyecto, err := a.client.GetProyectoByID(proyectoId)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	
+	// Create cotización with default values
+	request := admappapi.CreateCotizacionRequest{
+		IDCliente:      proyecto.IDCliente,
+		IDProyecto:     proyectoId,
+		IDServicio:     idServicio,
+		Moneda:         "RD$",
+		Fecha:          time.Now().Format("2006-01-02"),
+		TasaMoneda:     1.0,
+		TiempoEntrega:  "30",
+		Avance:         "60",
+		Validez:        30,
+		Estado:         "GENERADA",
+		Idioma:         "ES",
+		Descripcion:    "",
+		Retencion:      "NINGUNA",
+		Descuentop:     0.0,
+		Retencionp:     0.0,
+		Itbisp:         0.0,
+	}
+	
+	cotizacion, err := a.client.CreateCotizacionFromProyecto(proyectoId, request)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	return map[string]interface{}{"success": true, "data": cotizacion}
 }

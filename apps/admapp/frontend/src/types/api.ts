@@ -107,3 +107,86 @@ export interface ClientesPageState {
   formState: ClienteFormState;
   sidebarCollapsed: boolean;
 }
+
+// Proyecto interfaces
+export interface Proyecto {
+  id: number;
+  id_tenant: number;
+  id_cliente: number;
+  nombre_proyecto: string;
+  ubicacion: string;
+  descripcion: string;
+  activo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateProyectoRequest {
+  id_cliente: number;
+  nombre_proyecto: string;
+  ubicacion: string;
+  descripcion: string;
+}
+
+export interface UpdateProyectoRequest {
+  nombre_proyecto: string;
+  ubicacion: string;
+  descripcion: string;
+}
+
+export interface ProyectoFormData {
+  id: number | null;
+  id_cliente: number | null;
+  nombre_proyecto: string;
+  ubicacion: string;
+  descripcion: string;
+}
+
+export interface ProyectoFormState {
+  formData: ProyectoFormData;
+  isNew: boolean;
+  isLoading: boolean;
+  errors: Record<string, string>;
+}
+
+export interface ProyectosListState {
+  proyectos: Proyecto[];
+  filteredProyectos: Proyecto[];
+  searchTerm: string;
+  idFilter: string;
+  isLoading: boolean;
+  selectedProyecto: Proyecto | null;
+}
+
+export interface ProyectosPageState {
+  clientes: Cliente[];
+  selectedCliente: Cliente | null;
+  listState: ProyectosListState;
+  formState: ProyectoFormState;
+  sidebarCollapsed: boolean;
+}
+
+// Cotizacion interfaces
+export interface Cotizacion {
+  id: number;
+  id_tenant: number;
+  id_cliente: number;
+  id_proyecto: number;
+  id_servicio: number;
+  moneda: string;
+  fecha: string;
+  tasa_moneda: number;
+  tiempo_entrega: string;
+  avance: string;
+  validez: number;
+  estado: string;
+  idioma: string;
+  descripcion: string;
+  retencion: string;
+  descuentop: number;
+  retencionp: number;
+  itbisp: number;
+  activo: boolean;
+  created_at: string;
+  updated_at: string;
+}

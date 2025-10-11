@@ -3,7 +3,13 @@
 
 export function CreateCliente(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string,arg8:string,arg9:string,arg10:string,arg11:string):Promise<Record<string, any>>;
 
+export function CreateCotizacionFromProyecto(arg1:number,arg2:number):Promise<Record<string, any>>;
+
+export function CreateProyecto(arg1:number,arg2:string,arg3:string,arg4:string):Promise<Record<string, any>>;
+
 export function DeleteCliente(arg1:number):Promise<Record<string, any>>;
+
+export function DeleteProyecto(arg1:number):Promise<Record<string, any>>;
 
 export function GetClienteByID(arg1:number):Promise<Record<string, any>>;
 
@@ -11,10 +17,18 @@ export function GetClientes(arg1:boolean):Promise<Record<string, any>>;
 
 export function GetLogoURL(arg1:number):Promise<Record<string, any>>;
 
+export function GetProyectoByID(arg1:number):Promise<Record<string, any>>;
+
+export function GetProyectos(arg1:number,arg2:boolean):Promise<Record<string, any>>;
+
 export function OpenFile():Promise<Record<string, any>>;
 
 export function RestoreCliente(arg1:number):Promise<Record<string, any>>;
 
+export function RestoreProyecto(arg1:number):Promise<Record<string, any>>;
+
 export function UpdateCliente(arg1:number,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string,arg8:string,arg9:string,arg10:string,arg11:string,arg12:string):Promise<Record<string, any>>;
+
+export function UpdateProyecto(arg1:number,arg2:string,arg3:string,arg4:string):Promise<Record<string, any>>;
 
 export function UploadLogo(arg1:number,arg2:string):Promise<Record<string, any>>;

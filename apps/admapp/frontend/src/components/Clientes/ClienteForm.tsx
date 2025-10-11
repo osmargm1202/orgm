@@ -155,14 +155,14 @@ const ClienteForm: React.FC<ClienteFormProps> = ({
         <Form onSubmit={handleSubmit}>
           <Row>
             {/* Logo Upload */}
-            <Col md={3}>
-              <div className="text-center">
+            <Col md={4}>
+              <div className="text-center mb-4">
                 <div className="mb-3">
                   {logoPreview ? (
                     <Image
                       src={logoPreview}
                       alt="Logo preview"
-                      style={{ width: '300px', height: 'auto' }}
+                      style={{ maxWidth: '100%', height: 'auto' }}
                       onError={(e) => {
                         console.error('❌ Error loading logo image:', logoPreview);
                         console.error('Error event:', e);
@@ -174,7 +174,7 @@ const ClienteForm: React.FC<ClienteFormProps> = ({
                   ) : (
                     <div
                       className="d-flex align-items-center justify-content-center bg-light"
-                      style={{ width: '300px', minHeight: '200px' }}
+                      style={{ width: '100%', minHeight: '200px' }}
                     >
                       <i className="bi bi-image text-muted fs-1"></i>
                     </div>
@@ -209,7 +209,7 @@ const ClienteForm: React.FC<ClienteFormProps> = ({
             </Col>
 
             {/* Form Fields */}
-            <Col md={9}>
+            <Col md={8}>
               <Row>
                 <Col md={6}>
                   <Form.Group className="mb-3">

@@ -6,8 +6,20 @@ export function CreateCliente(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, ar
   return window['go']['main']['App']['CreateCliente'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11);
 }
 
+export function CreateCotizacionFromProyecto(arg1, arg2) {
+  return window['go']['main']['App']['CreateCotizacionFromProyecto'](arg1, arg2);
+}
+
+export function CreateProyecto(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['CreateProyecto'](arg1, arg2, arg3, arg4);
+}
+
 export function DeleteCliente(arg1) {
   return window['go']['main']['App']['DeleteCliente'](arg1);
+}
+
+export function DeleteProyecto(arg1) {
+  return window['go']['main']['App']['DeleteProyecto'](arg1);
 }
 
 export function GetClienteByID(arg1) {
@@ -22,6 +34,14 @@ export function GetLogoURL(arg1) {
   return window['go']['main']['App']['GetLogoURL'](arg1);
 }
 
+export function GetProyectoByID(arg1) {
+  return window['go']['main']['App']['GetProyectoByID'](arg1);
+}
+
+export function GetProyectos(arg1, arg2) {
+  return window['go']['main']['App']['GetProyectos'](arg1, arg2);
+}
+
 export function OpenFile() {
   return window['go']['main']['App']['OpenFile']();
 }
@@ -30,8 +50,16 @@ export function RestoreCliente(arg1) {
   return window['go']['main']['App']['RestoreCliente'](arg1);
 }
 
+export function RestoreProyecto(arg1) {
+  return window['go']['main']['App']['RestoreProyecto'](arg1);
+}
+
 export function UpdateCliente(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12) {
   return window['go']['main']['App']['UpdateCliente'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12);
+}
+
+export function UpdateProyecto(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['UpdateProyecto'](arg1, arg2, arg3, arg4);
 }
 
 export function UploadLogo(arg1, arg2) {

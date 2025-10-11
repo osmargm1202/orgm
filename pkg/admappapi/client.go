@@ -126,6 +126,79 @@ type LogoResponse struct {
 	URL  string `json:"url"`
 }
 
+// Proyecto represents a project
+type Proyecto struct {
+	ID             int    `json:"id"`
+	IDTenant       int    `json:"id_tenant"`
+	IDCliente      int    `json:"id_cliente"`
+	NombreProyecto string `json:"nombre_proyecto"`
+	Ubicacion      string `json:"ubicacion"`
+	Descripcion    string `json:"descripcion"`
+	Activo         bool   `json:"activo"`
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at"`
+}
+
+// CreateProyectoRequest represents the request for creating a project
+type CreateProyectoRequest struct {
+	IDCliente      int    `json:"id_cliente"`
+	NombreProyecto string `json:"nombre_proyecto"`
+	Ubicacion      string `json:"ubicacion"`
+	Descripcion    string `json:"descripcion"`
+}
+
+// UpdateProyectoRequest represents the request for updating a project
+type UpdateProyectoRequest struct {
+	NombreProyecto string `json:"nombre_proyecto"`
+	Ubicacion      string `json:"ubicacion"`
+	Descripcion    string `json:"descripcion"`
+}
+
+// Cotizacion represents a basic cotización
+type Cotizacion struct {
+	ID           int     `json:"id"`
+	IDTenant     int     `json:"id_tenant"`
+	IDCliente    int     `json:"id_cliente"`
+	IDProyecto   int     `json:"id_proyecto"`
+	IDServicio   int     `json:"id_servicio"`
+	Moneda       string  `json:"moneda"`
+	Fecha        string  `json:"fecha"`
+	TasaMoneda   float64 `json:"tasa_moneda"`
+	TiempoEntrega string `json:"tiempo_entrega"`
+	Avance       string  `json:"avance"`
+	Validez      int     `json:"validez"`
+	Estado       string  `json:"estado"`
+	Idioma       string  `json:"idioma"`
+	Descripcion  string  `json:"descripcion"`
+	Retencion    string  `json:"retencion"`
+	Descuentop   float64 `json:"descuentop"`
+	Retencionp   float64 `json:"retencionp"`
+	Itbisp       float64 `json:"itbisp"`
+	Activo       bool    `json:"activo"`
+	CreatedAt    string  `json:"created_at"`
+	UpdatedAt    string  `json:"updated_at"`
+}
+
+// CreateCotizacionRequest represents the request for creating a cotización
+type CreateCotizacionRequest struct {
+	IDCliente      int     `json:"id_cliente"`
+	IDProyecto     int     `json:"id_proyecto"`
+	IDServicio     int     `json:"id_servicio"`
+	Moneda         string  `json:"moneda"`
+	Fecha          string  `json:"fecha"`
+	TasaMoneda     float64 `json:"tasa_moneda"`
+	TiempoEntrega  string  `json:"tiempo_entrega"`
+	Avance         string  `json:"avance"`
+	Validez        int     `json:"validez"`
+	Estado         string  `json:"estado"`
+	Idioma         string  `json:"idioma"`
+	Descripcion    string  `json:"descripcion"`
+	Retencion      string  `json:"retencion"`
+	Descuentop     float64 `json:"descuentop"`
+	Retencionp     float64 `json:"retencionp"`
+	Itbisp         float64 `json:"itbisp"`
+}
+
 // Client represents the API client for admin operations
 type Client struct {
 	BaseURL    string
@@ -449,6 +522,239 @@ func (c *Client) GetClienteLogoURL(id int) (*LogoResponse, error) {
 	fmt.Printf("✅ Logo parsed - Path: %s, URL: %s\n", logoResp.Path, logoResp.URL)
 
 	return &logoResp, nil
+}
+
+// GetProyectos returns projects for a specific client
+func (c *Client) GetProyectos(idCliente int, incluirInactivos bool) ([]Proyecto, error) {
+	var url string
+	if idCliente > 0 {
+		url = fmt.Sprintf("%s/api/clientes/%d/proyectos", c.BaseURL, idCliente)
+	} else {
+		url = c.BaseURL + "/api/proyectos"
+	}
+	
+	if incluirInactivos {
+		url += "?incluir_inactivos=true"
+	}
+	
+	fmt.Printf("🌐 Realizando GET a: %s\n", url)
+	
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creando solicitud: %v", err)
+	}
+	
+	c.AuthFunc(req)
+	req.Header.Set("X-Tenant-Id", "1")
+	
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error de conexión a la API: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("error del servidor (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+
+	var proyectos []Proyecto
+	if err := json.NewDecoder(resp.Body).Decode(&proyectos); err != nil {
+		return nil, fmt.Errorf("error al decodificar respuesta: %v", err)
+	}
+
+	fmt.Printf("✅ Decodificación exitosa: %d proyectos\n", len(proyectos))
+	return proyectos, nil
+}
+
+// GetProyectoByID returns a specific project by ID
+func (c *Client) GetProyectoByID(id int) (*Proyecto, error) {
+	url := fmt.Sprintf("%s/api/proyectos/%d", c.BaseURL, id)
+	
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creando solicitud: %v", err)
+	}
+	
+	c.AuthFunc(req)
+	req.Header.Set("X-Tenant-Id", "1")
+	
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error de conexión a la API: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("error del servidor (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+
+	var proyecto Proyecto
+	if err := json.NewDecoder(resp.Body).Decode(&proyecto); err != nil {
+		return nil, fmt.Errorf("error al decodificar respuesta: %v", err)
+	}
+
+	return &proyecto, nil
+}
+
+// CreateProyecto creates a new project
+func (c *Client) CreateProyecto(request CreateProyectoRequest) (*Proyecto, error) {
+	jsonData, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling request: %v", err)
+	}
+	
+	req, err := http.NewRequest("POST", c.BaseURL+"/api/proyectos", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %v", err)
+	}
+	
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-Id", "1")
+	c.AuthFunc(req)
+	
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error calling API: %v", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+	
+	var proyecto Proyecto
+	if err := json.NewDecoder(resp.Body).Decode(&proyecto); err != nil {
+		return nil, fmt.Errorf("error decoding response: %v", err)
+	}
+	
+	return &proyecto, nil
+}
+
+// UpdateProyecto updates an existing project
+func (c *Client) UpdateProyecto(id int, request UpdateProyectoRequest) (*Proyecto, error) {
+	jsonData, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling request: %v", err)
+	}
+	
+	url := fmt.Sprintf("%s/api/proyectos/%d", c.BaseURL, id)
+	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %v", err)
+	}
+	
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-Id", "1")
+	c.AuthFunc(req)
+	
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error calling API: %v", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+	
+	var proyecto Proyecto
+	if err := json.NewDecoder(resp.Body).Decode(&proyecto); err != nil {
+		return nil, fmt.Errorf("error decoding response: %v", err)
+	}
+	
+	return &proyecto, nil
+}
+
+// DeleteProyecto soft deletes a project
+func (c *Client) DeleteProyecto(id int) error {
+	url := fmt.Sprintf("%s/api/proyectos/%d", c.BaseURL, id)
+	
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return fmt.Errorf("error creating request: %v", err)
+	}
+	
+	req.Header.Set("X-Tenant-Id", "1")
+	c.AuthFunc(req)
+	
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("error calling API: %v", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+	
+	return nil
+}
+
+// RestoreProyecto restores a soft-deleted project
+func (c *Client) RestoreProyecto(id int) error {
+	url := fmt.Sprintf("%s/api/proyectos/%d/restore", c.BaseURL, id)
+	
+	req, err := http.NewRequest("POST", url, nil)
+	if err != nil {
+		return fmt.Errorf("error creating request: %v", err)
+	}
+	
+	req.Header.Set("X-Tenant-Id", "1")
+	c.AuthFunc(req)
+	
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("error calling API: %v", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+	
+	return nil
+}
+
+// CreateCotizacionFromProyecto creates a cotización from a project
+func (c *Client) CreateCotizacionFromProyecto(proyectoId int, request CreateCotizacionRequest) (*Cotizacion, error) {
+	jsonData, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling request: %v", err)
+	}
+	
+	url := fmt.Sprintf("%s/api/proyectos/%d/crear-cotizacion", c.BaseURL, proyectoId)
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %v", err)
+	}
+	
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-Id", "1")
+	c.AuthFunc(req)
+	
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error calling API: %v", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+	
+	var cotizacion Cotizacion
+	if err := json.NewDecoder(resp.Body).Decode(&cotizacion); err != nil {
+		return nil, fmt.Errorf("error decoding response: %v", err)
+	}
+	
+	return &cotizacion, nil
 }
 
 // GetBaseURL gets the base URL from config, works for both CLI and Wails contexts
