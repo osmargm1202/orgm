@@ -180,6 +180,7 @@ body {
   border-right: 1px solid var(--border-color);
   min-height: 100vh;
   transition: width 0.3s ease;
+  z-index: 999; /* Debajo del header */
 }
 
 .sidebar.collapsed {
@@ -198,12 +199,12 @@ body {
   top: 0;
   left: 0;
   right: 0;
-  z-index: 1000;
+  z-index: 1000; /* Por encima del sidebar */
 }
 
 .main-content {
   margin-left: 250px;
-  padding-top: 60px;
+  padding-top: 80px; /* 60px header + 20px margen adicional */
   min-height: 100vh;
   background-color: var(--bg-primary);
   transition: margin-left 0.3s ease;
@@ -221,6 +222,31 @@ body {
   border: 2px solid var(--border-color);
 }
 
+/* Table Container with Scroll */
+.table-container {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.table-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.table-container::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+.table-container::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+.table-container::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
 /* Loading States */
 .loading {
   opacity: 0.6;
@@ -236,6 +262,7 @@ body {
 @media (max-width: 768px) {
   .sidebar {
     width: 60px;
+    z-index: 1001; /* En móvil, sidebar debe estar por encima de todo */
   }
   
   .main-content {

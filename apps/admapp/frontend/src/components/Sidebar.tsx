@@ -21,11 +21,11 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, activeMenu, onMenuSelect }
 
   return (
     <div className={`sidebar ${collapsed ? 'collapsed' : 'expanded'} position-fixed`}>
-      <Nav className="flex-column p-3" style={{ height: '100vh', paddingTop: '80px' }}>
+      <Nav className="flex-column px-2 mt-1" style={{ height: '100vh', paddingTop: '80px' }}>
         {menuItems.map((item) => (
           <Nav.Item key={item.id}>
             <Nav.Link
-              className={`text-light d-flex align-items-center py-3 px-2 ${
+              className={`text-light d-flex align-items-center py-2 px-2 ${
                 activeMenu === item.id ? 'active' : ''
               }`}
               onClick={() => onMenuSelect(item.id)}

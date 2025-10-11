@@ -2,11 +2,16 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/osmargm1202/orgm/cmd"
 	"github.com/osmargm1202/orgm/pkg/admappapi"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // App struct
@@ -20,22 +25,25 @@ func NewApp() *App {
 	// Get base URL
 	baseURL, err := admappapi.GetBaseURL()
 	if err != nil {
-		fmt.Printf("Error getting base URL: %v\n", err)
+		fmt.Printf("⚠️ Error getting base URL: %v\n", err)
 		baseURL = "http://localhost:8000" // fallback
 	}
+	fmt.Printf("🌐 Base URL configurada: %s\n", baseURL)
 
-	// Create auth function that uses cmd.EnsureGCloudIDToken
+	// Create auth function that uses cmd.EnsureGCloudIDTokenForAudience
 	authFunc := func(req *http.Request) {
-		token, err := cmd.EnsureGCloudIDToken()
+		token, err := cmd.EnsureGCloudIDTokenForAudience(baseURL)
 		if err != nil || token == "" {
-			fmt.Printf("Warning: No se pudo obtener token de autenticación: %v\n", err)
+			fmt.Printf("⚠️ Warning: No se pudo obtener token de autenticación: %v\n", err)
 			return
 		}
+		fmt.Printf("🔑 Token obtenido: %s...\n", token[:20])
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
 	// Create client
 	client := admappapi.NewClient(baseURL, authFunc)
+	fmt.Printf("✅ Cliente API inicializado correctamente\n")
 
 	return &App{
 		client: client,
@@ -50,10 +58,13 @@ func (a *App) startup(ctx context.Context) {
 
 // GetClientes returns all clients
 func (a *App) GetClientes(incluirInactivos bool) map[string]interface{} {
+	fmt.Printf("🔍 GetClientes llamado con incluirInactivos: %v\n", incluirInactivos)
 	clientes, err := a.client.GetClientes(incluirInactivos)
 	if err != nil {
+		fmt.Printf("❌ Error en GetClientes: %v\n", err)
 		return map[string]interface{}{"success": false, "error": err.Error()}
 	}
+	fmt.Printf("✅ GetClientes exitoso, %d clientes encontrados\n", len(clientes))
 	return map[string]interface{}{"success": true, "data": clientes}
 }
 
@@ -139,17 +150,124 @@ func (a *App) UploadLogo(id int, filePath string) map[string]interface{} {
 	return map[string]interface{}{"success": true, "data": logoResp}
 }
 
-// GetLogoURL gets the logo URL for a client
+// GetLogoURL gets the logo URL for a client and caches it locally
 func (a *App) GetLogoURL(id int) map[string]interface{} {
 	logoResp, err := a.client.GetClienteLogoURL(id)
 	if err != nil {
 		return map[string]interface{}{"success": false, "error": err.Error()}
 	}
-	return map[string]interface{}{"success": true, "data": logoResp}
+	
+	// Download and cache logo locally
+	localPath, err := a.downloadAndCacheLogo(id, logoResp.URL)
+	if err != nil {
+		fmt.Printf("⚠️ Error caching logo: %v\n", err)
+		// Return remote URL if caching fails
+		return map[string]interface{}{"success": true, "data": map[string]interface{}{
+			"path": logoResp.Path,
+			"url":  logoResp.URL,
+		}}
+	}
+	
+	// Convert local file to base64 data URL
+	base64URL, err := a.fileToBase64(localPath)
+	if err != nil {
+		fmt.Printf("⚠️ Error converting to base64: %v\n", err)
+		// Return remote URL if conversion fails
+		return map[string]interface{}{"success": true, "data": map[string]interface{}{
+			"path": logoResp.Path,
+			"url":  logoResp.URL,
+		}}
+	}
+	
+	// Return base64 data URL for preview
+	return map[string]interface{}{"success": true, "data": map[string]interface{}{
+		"path": logoResp.Path,
+		"url":  base64URL,
+	}}
 }
 
-// OpenFile opens a file with the default application
-func (a *App) OpenFile(filePath string) map[string]interface{} {
-	// For now, just return success - file opening can be implemented later
-	return map[string]interface{}{"success": true, "filepath": filePath}
+// downloadAndCacheLogo downloads logo from URL and saves it locally
+func (a *App) downloadAndCacheLogo(clienteId int, url string) (string, error) {
+	// Get home directory
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("error getting home directory: %v", err)
+	}
+	
+	// Create cache directory: ~/.config/orgm/tenant/1/clientes/
+	cacheDir := filepath.Join(homeDir, ".config", "orgm", "tenant", "1", "clientes")
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		return "", fmt.Errorf("error creating cache directory: %v", err)
+	}
+	
+	// Local file path
+	localPath := filepath.Join(cacheDir, fmt.Sprintf("%d.png", clienteId))
+	
+	// Check if file already exists
+	if _, err := os.Stat(localPath); err == nil {
+		fmt.Printf("✅ Logo already cached: %s\n", localPath)
+		return localPath, nil
+	}
+	
+	// Download logo
+	resp, err := http.Get(url)
+	if err != nil {
+		return "", fmt.Errorf("error downloading logo: %v", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("error downloading logo: HTTP %d", resp.StatusCode)
+	}
+	
+	// Create local file
+	file, err := os.Create(localPath)
+	if err != nil {
+		return "", fmt.Errorf("error creating local file: %v", err)
+	}
+	defer file.Close()
+	
+	// Copy content
+	_, err = io.Copy(file, resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("error saving logo: %v", err)
+	}
+	
+	fmt.Printf("✅ Logo cached successfully: %s\n", localPath)
+	return localPath, nil
+}
+
+// fileToBase64 converts a local file to a base64 data URL
+func (a *App) fileToBase64(filePath string) (string, error) {
+	// Read file
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("error reading file: %v", err)
+	}
+	
+	// Encode to base64
+	encoded := base64.StdEncoding.EncodeToString(data)
+	
+	// Create data URL (assuming PNG, you can detect mime type if needed)
+	dataURL := "data:image/png;base64," + encoded
+	
+	fmt.Printf("✅ Converted to base64 (%d bytes → %d chars)\n", len(data), len(encoded))
+	return dataURL, nil
+}
+
+// OpenFile opens a file dialog for logo selection
+func (a *App) OpenFile() map[string]interface{} {
+	file, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Seleccionar Logo",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Images", Pattern: "*.png;*.jpg;*.jpeg;*.gif"},
+		},
+	})
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	if file == "" {
+		return map[string]interface{}{"success": false, "error": "No file selected"}
+	}
+	return map[string]interface{}{"success": true, "data": file}
 }

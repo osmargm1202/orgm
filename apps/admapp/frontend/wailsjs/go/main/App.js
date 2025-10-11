@@ -22,8 +22,8 @@ export function GetLogoURL(arg1) {
   return window['go']['main']['App']['GetLogoURL'](arg1);
 }
 
-export function OpenFile(arg1) {
-  return window['go']['main']['App']['OpenFile'](arg1);
+export function OpenFile() {
+  return window['go']['main']['App']['OpenFile']();
 }
 
 export function RestoreCliente(arg1) {

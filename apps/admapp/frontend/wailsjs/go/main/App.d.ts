@@ -11,7 +11,7 @@ export function GetClientes(arg1:boolean):Promise<Record<string, any>>;
 
 export function GetLogoURL(arg1:number):Promise<Record<string, any>>;
 
-export function OpenFile(arg1:string):Promise<Record<string, any>>;
+export function OpenFile():Promise<Record<string, any>>;
 
 export function RestoreCliente(arg1:number):Promise<Record<string, any>>;
 

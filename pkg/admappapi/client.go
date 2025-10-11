@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,7 +20,7 @@ import (
 // Config represents the configuration structure
 type Config struct {
 	URL struct {
-		AdminAPI string `toml:"admin_api"`
+		AdminAPI string `toml:"admapp_api"`
 	} `toml:"url"`
 }
 
@@ -120,6 +123,7 @@ type UpdateClienteRequest struct {
 // LogoResponse represents the response from logo operations
 type LogoResponse struct {
 	Path string `json:"path"`
+	URL  string `json:"url"`
 }
 
 // Client represents the API client for admin operations
@@ -145,6 +149,8 @@ func (c *Client) GetClientes(incluirInactivos bool) ([]Cliente, error) {
 		url += "?incluir_inactivos=true"
 	}
 	
+	fmt.Printf("🌐 Realizando GET a: %s\n", url)
+	
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("error creando solicitud: %v", err)
@@ -153,22 +159,31 @@ func (c *Client) GetClientes(incluirInactivos bool) ([]Cliente, error) {
 	c.AuthFunc(req)
 	req.Header.Set("X-Tenant-Id", "1")
 	
+	fmt.Printf("📤 Headers enviados: Authorization=%s, X-Tenant-Id=%s\n", 
+		req.Header.Get("Authorization")[:20]+"...", req.Header.Get("X-Tenant-Id"))
+	
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
+		fmt.Printf("❌ Error de conexión: %v\n", err)
 		return nil, fmt.Errorf("error de conexión a la API: %v", err)
 	}
 	defer resp.Body.Close()
 
+	fmt.Printf("📥 Respuesta recibida: Status %d\n", resp.StatusCode)
+
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
+		fmt.Printf("❌ Error del servidor: %s\n", string(body))
 		return nil, fmt.Errorf("error del servidor (HTTP %d): %s", resp.StatusCode, string(body))
 	}
 
 	var clientes []Cliente
 	if err := json.NewDecoder(resp.Body).Decode(&clientes); err != nil {
+		fmt.Printf("❌ Error decodificando JSON: %v\n", err)
 		return nil, fmt.Errorf("error al decodificar respuesta: %v", err)
 	}
 
+	fmt.Printf("✅ Decodificación exitosa: %d clientes\n", len(clientes))
 	return clientes, nil
 }
 
@@ -335,8 +350,36 @@ func (c *Client) UploadClienteLogo(id int, filePath string) (*LogoResponse, erro
 	defer file.Close()
 
 	var buf bytes.Buffer
-	writer := io.MultiWriter(&buf)
-	io.Copy(writer, file)
+	writer := multipart.NewWriter(&buf)
+
+	// Detect MIME type based on file extension
+	filename := filepath.Base(filePath)
+	mimeType := mime.TypeByExtension(filepath.Ext(filePath))
+	if mimeType == "" {
+		mimeType = "application/octet-stream" // fallback
+	}
+
+	// Create form file field named "file" with correct Content-Type
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename="%s"`, filename))
+	h.Set("Content-Type", mimeType)
+	
+	part, err := writer.CreatePart(h)
+	if err != nil {
+		return nil, fmt.Errorf("error creating form file: %v", err)
+	}
+
+	// Copy file content to the form field
+	_, err = io.Copy(part, file)
+	if err != nil {
+		return nil, fmt.Errorf("error copying file content: %v", err)
+	}
+
+	// Close the writer to finalize the multipart data
+	err = writer.Close()
+	if err != nil {
+		return nil, fmt.Errorf("error closing multipart writer: %v", err)
+	}
 
 	url := fmt.Sprintf("%s/api/clientes/%d/logo", c.BaseURL, id)
 	req, err := http.NewRequest("POST", url, &buf)
@@ -344,9 +387,10 @@ func (c *Client) UploadClienteLogo(id int, filePath string) (*LogoResponse, erro
 		return nil, fmt.Errorf("error creating request: %v", err)
 	}
 
-	req.Header.Set("Content-Type", "multipart/form-data")
-	req.Header.Set("X-Tenant-Id", "1")
+	// Set the correct Content-Type header with boundary
+	req.Header.Set("Content-Type", writer.FormDataContentType())
 	c.AuthFunc(req)
+	req.Header.Set("X-Tenant-Id", "1")
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -376,8 +420,8 @@ func (c *Client) GetClienteLogoURL(id int) (*LogoResponse, error) {
 		return nil, fmt.Errorf("error creating request: %v", err)
 	}
 	
-	req.Header.Set("X-Tenant-Id", "1")
 	c.AuthFunc(req)
+	req.Header.Set("X-Tenant-Id", "1")
 	
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -390,10 +434,19 @@ func (c *Client) GetClienteLogoURL(id int) (*LogoResponse, error) {
 		return nil, fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(body))
 	}
 
+	// Read and log the response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading response body: %v", err)
+	}
+	fmt.Printf("🖼️ GetClienteLogoURL response: %s\n", string(body))
+
 	var logoResp LogoResponse
-	if err := json.NewDecoder(resp.Body).Decode(&logoResp); err != nil {
+	if err := json.Unmarshal(body, &logoResp); err != nil {
 		return nil, fmt.Errorf("error decoding response: %v", err)
 	}
+	
+	fmt.Printf("✅ Logo parsed - Path: %s, URL: %s\n", logoResp.Path, logoResp.URL)
 
 	return &logoResp, nil
 }
@@ -421,9 +474,10 @@ func GetBaseURL() (string, error) {
 	}
 	
 	// Fallback to environment variable or default
-	baseURL := os.Getenv("ADMIN_API_URL")
+	baseURL := os.Getenv("ADMAPP_API_URL")
 	if baseURL == "" {
 		baseURL = "http://localhost:8000"
 	}
 	return strings.TrimSuffix(baseURL, "/"), nil
 }
+

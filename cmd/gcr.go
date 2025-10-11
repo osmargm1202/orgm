@@ -17,10 +17,9 @@ import (
 	"google.golang.org/api/option"
 )
 
-// EnsureGCloudIDToken obtains an ID token for Cloud Run.
-// Audience is taken from `url.propuestas_api`.
+// EnsureGCloudIDTokenForAudience obtains an ID token for a specific audience URL.
 // Credentials file is expected at `<config_path>/orgmdev_google.json`.
-func EnsureGCloudIDToken() (string, error) {
+func EnsureGCloudIDTokenForAudience(audience string) (string, error) {
     // Try disk cache first
     if cachedTok, cachedExp, ok := LoadCachedToken(); ok {
         if time.Unix(cachedExp, 0).After(time.Now().Add(2 * time.Minute)) {
@@ -29,9 +28,8 @@ func EnsureGCloudIDToken() (string, error) {
         }
     }
 
-    audience := viper.GetString("url.propuestas_api")
     if audience == "" {
-        return "", fmt.Errorf("url.propuestas_api no está configurado")
+        return "", fmt.Errorf("audience URL no está configurado")
     }
 
     configPath := viper.GetString("config_path")
@@ -95,6 +93,17 @@ func EnsureGCloudIDToken() (string, error) {
     _ = SaveCachedToken(tok.AccessToken, expiryUnix)
 
     return tok.AccessToken, nil
+}
+
+// EnsureGCloudIDToken obtains an ID token for Cloud Run.
+// Audience is taken from `url.propuestas_api`.
+// Credentials file is expected at `<config_path>/orgmdev_google.json`.
+func EnsureGCloudIDToken() (string, error) {
+    audience := viper.GetString("url.propuestas_api")
+    if audience == "" {
+        return "", fmt.Errorf("url.propuestas_api no está configurado")
+    }
+    return EnsureGCloudIDTokenForAudience(audience)
 }
 
 // Cloud Run user management functions

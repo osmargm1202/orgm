@@ -2,6 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { Card, Form, Button, Row, Col, Alert, Spinner, Image } from 'react-bootstrap';
 import { Cliente, ClienteFormData, ClienteFormState } from '../../types/api';
 
+// Importar las funciones de Wails desde el runtime generado
+// @ts-ignore - Las funciones se generan en tiempo de compilación
+import * as App from '../../../wailsjs/go/main/App';
+
 interface ClienteFormProps {
   cliente: Cliente | null;
   isNew: boolean;
@@ -40,6 +44,10 @@ const ClienteForm: React.FC<ClienteFormProps> = ({
     tipo_factura: 'NCFC',
   });
 
+  // Logo states
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [logoMessage, setLogoMessage] = useState<{ type: 'success' | 'danger'; text: string } | null>(null);
+
   // Update form data when cliente changes
   useEffect(() => {
     if (cliente) {
@@ -75,6 +83,26 @@ const ClienteForm: React.FC<ClienteFormProps> = ({
     }
   }, [cliente]);
 
+  // Load logo when editing cliente
+  useEffect(() => {
+    if (formData.id && !isNew) {
+      loadLogoPreview(formData.id);
+    }
+  }, [formData.id, isNew]);
+
+  const loadLogoPreview = async (clienteId: number) => {
+    try {
+      const result = await App.GetLogoURL(clienteId);
+      if (result.success && result.data?.url) {
+        // Logo exists, it will be shown via logoPreview prop
+        console.log('Logo cargado para cliente:', clienteId);
+      }
+    } catch (error) {
+      // Logo doesn't exist, that's ok
+      console.log('No hay logo para cliente:', clienteId);
+    }
+  };
+
   const handleInputChange = (field: keyof ClienteFormData, value: string) => {
     setFormData((prev) => ({
       ...prev,
@@ -87,15 +115,37 @@ const ClienteForm: React.FC<ClienteFormProps> = ({
     onSave(formData, null); // Logo handling will be implemented separately
   };
 
-  const handleLogoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      onLogoChange(file);
+  const handleUploadLogo = async () => {
+    if (!formData.id) return;
+    
+    setLogoUploading(true);
+    setLogoMessage(null);
+    
+    try {
+      // Use OpenFile to get file path
+      const fileResult = await App.OpenFile();
+      if (!fileResult.success) {
+        setLogoMessage({ type: 'danger', text: 'Error seleccionando archivo' });
+        return;
+      }
+      
+      const result = await App.UploadLogo(formData.id, fileResult.data);
+      if (result.success) {
+        setLogoMessage({ type: 'success', text: 'Logo actualizado exitosamente' });
+        // Reload logo preview
+        await loadLogoPreview(formData.id);
+      } else {
+        setLogoMessage({ type: 'danger', text: `Error al subir logo: ${result.error}` });
+      }
+    } catch (error) {
+      setLogoMessage({ type: 'danger', text: `Error al subir logo: ${error}` });
+    } finally {
+      setLogoUploading(false);
     }
   };
 
   return (
-    <Card className="mt-4">
+    <Card className="mt-4" style={{ backgroundColor: '#2d3748' }}>
       <Card.Header>
         <h5 className="mb-0">
           {isNew ? 'Nuevo Cliente' : `Editar Cliente ${cliente?.id}`}
@@ -112,13 +162,19 @@ const ClienteForm: React.FC<ClienteFormProps> = ({
                     <Image
                       src={logoPreview}
                       alt="Logo preview"
-                      className="logo-preview"
-                      fluid
+                      style={{ width: '300px', height: 'auto' }}
+                      onError={(e) => {
+                        console.error('❌ Error loading logo image:', logoPreview);
+                        console.error('Error event:', e);
+                      }}
+                      onLoad={() => {
+                        console.log('✅ Logo image loaded successfully:', logoPreview);
+                      }}
                     />
                   ) : (
                     <div
-                      className="logo-preview d-flex align-items-center justify-content-center bg-light"
-                      style={{ minHeight: '100px' }}
+                      className="d-flex align-items-center justify-content-center bg-light"
+                      style={{ width: '300px', minHeight: '200px' }}
                     >
                       <i className="bi bi-image text-muted fs-1"></i>
                     </div>
@@ -126,12 +182,28 @@ const ClienteForm: React.FC<ClienteFormProps> = ({
                 </div>
                 <Form.Group>
                   <Form.Label>Logo del Cliente</Form.Label>
-                  <Form.Control
-                    type="file"
-                    accept="image/*"
-                    onChange={handleLogoFileChange}
-                    size="sm"
-                  />
+                  <div className="mb-2">
+                    <Button 
+                      variant="secondary" 
+                      size="sm"
+                      disabled={logoUploading || !formData.id}
+                      onClick={handleUploadLogo}
+                    >
+                      {logoUploading ? (
+                        <>
+                          <Spinner animation="border" size="sm" className="me-1" />
+                          Subiendo...
+                        </>
+                      ) : (
+                        'Seleccionar y Subir Logo'
+                      )}
+                    </Button>
+                  </div>
+                  {logoMessage && (
+                    <Alert variant={logoMessage.type} className="py-2 mb-0">
+                      <small>{logoMessage.text}</small>
+                    </Alert>
+                  )}
                 </Form.Group>
               </div>
             </Col>

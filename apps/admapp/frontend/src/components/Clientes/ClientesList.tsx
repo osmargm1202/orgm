@@ -10,6 +10,7 @@ interface ClientesListProps {
   onClienteSelect: (cliente: Cliente) => void;
   onNewCliente: () => void;
   onIncludeInactiveChange: (include: boolean) => void;
+  onEdit: (cliente: Cliente) => void;
 }
 
 const ClientesList: React.FC<ClientesListProps> = ({
@@ -20,35 +21,44 @@ const ClientesList: React.FC<ClientesListProps> = ({
   onClienteSelect,
   onNewCliente,
   onIncludeInactiveChange,
+  onEdit,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [idFilter, setIdFilter] = useState('');
   const [filteredClientes, setFilteredClientes] = useState<Cliente[]>([]);
 
-  // Filter clientes based on search term and ID filter
+  // Filter clientes based on search term, ID filter, and selected cliente
   useEffect(() => {
     let filtered = clientes;
 
-    // Filter by search term (nombre, rnc, nombre_comercial)
-    if (searchTerm) {
-      filtered = filtered.filter(
-        (cliente) =>
-          cliente.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          cliente.numero.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          cliente.nombre_comercial.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    }
-
-    // Filter by ID
-    if (idFilter) {
-      const id = parseInt(idFilter);
-      if (!isNaN(id)) {
-        filtered = filtered.filter((cliente) => cliente.id === id);
+    // If a cliente is selected, show only that cliente
+    if (selectedCliente) {
+      filtered = [selectedCliente];
+    } else {
+      // Filter by search term (nombre, rnc, nombre_comercial)
+      if (searchTerm) {
+        filtered = filtered.filter(
+          (cliente) =>
+            cliente.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            cliente.numero.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            cliente.nombre_comercial.toLowerCase().includes(searchTerm.toLowerCase())
+        );
       }
+
+      // Filter by ID
+      if (idFilter) {
+        const id = parseInt(idFilter);
+        if (!isNaN(id)) {
+          filtered = filtered.filter((cliente) => cliente.id === id);
+        }
+      }
+
+      // Sort by ID ascending
+      filtered = filtered.sort((a, b) => a.id - b.id);
     }
 
     setFilteredClientes(filtered);
-  }, [clientes, searchTerm, idFilter]);
+  }, [clientes, searchTerm, idFilter, selectedCliente]);
 
   const handleIdFilterChange = (value: string) => {
     setIdFilter(value);
@@ -64,7 +74,7 @@ const ClientesList: React.FC<ClientesListProps> = ({
   };
 
   return (
-    <div className="card">
+    <div className="card" style={{ backgroundColor: '#2d3748' }}>
       <div className="card-header">
         <div className="d-flex justify-content-between align-items-center">
           <h5 className="mb-0">Lista de Clientes</h5>
@@ -94,7 +104,7 @@ const ClientesList: React.FC<ClientesListProps> = ({
               />
             </InputGroup>
           </div>
-          <div className="col-md-3">
+          <div className="col-md-6">
             <InputGroup>
               <InputGroup.Text>
                 <i className="bi bi-hash"></i>
@@ -106,15 +116,6 @@ const ClientesList: React.FC<ClientesListProps> = ({
                 onChange={(e) => handleIdFilterChange(e.target.value)}
               />
             </InputGroup>
-          </div>
-          <div className="col-md-3">
-            <Form.Check
-              type="checkbox"
-              id="includeInactive"
-              label="Incluir inactivos"
-              checked={includeInactive}
-              onChange={(e) => onIncludeInactiveChange(e.target.checked)}
-            />
           </div>
         </div>
 
@@ -135,22 +136,21 @@ const ClientesList: React.FC<ClientesListProps> = ({
 
         {/* Table */}
         {!isLoading && (
-          <div className="table-responsive">
-            <Table hover className="mb-0">
+          <div className="table-container">
+            <Table hover striped className="mb-0 table-dark">
               <thead>
                 <tr>
-                  <th>ID</th>
-                  <th>Nombre</th>
-                  <th>RNC</th>
-                  <th>Nombre Comercial</th>
-                  <th>Representante</th>
-                  <th>Estado</th>
+                  <th style={{ width: '80px' }}>ID</th>
+                  <th style={{ width: '200px' }}>Nombre</th>
+                  <th style={{ width: '150px' }}>RNC</th>
+                  <th style={{ width: '200px' }}>Nombre Comercial</th>
+                  <th style={{ width: '200px' }}>Representante</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredClientes.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="text-center text-muted py-4">
+                    <td colSpan={5} className="text-center text-muted py-4">
                       {searchTerm || idFilter
                         ? 'No se encontraron clientes con los criterios de búsqueda'
                         : 'No hay clientes registrados'}
@@ -171,15 +171,6 @@ const ClientesList: React.FC<ClientesListProps> = ({
                       <td>{cliente.numero}</td>
                       <td>{cliente.nombre_comercial}</td>
                       <td>{cliente.representante}</td>
-                      <td>
-                        <span
-                          className={`badge ${
-                            cliente.activo ? 'bg-success' : 'bg-secondary'
-                          }`}
-                        >
-                          {cliente.activo ? 'Activo' : 'Inactivo'}
-                        </span>
-                      </td>
                     </tr>
                   ))
                 )}

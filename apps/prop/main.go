@@ -93,7 +93,8 @@ func NewApp() *App {
 	authFunc := func(req *http.Request) {
 		token, err := cmd.EnsureGCloudIDToken()
 		if err != nil || token == "" {
-			fmt.Printf("Warning: No se pudo obtener token de autenticación: %v\n", err)
+			fmt.Printf("Error: No se pudo obtener token de autenticación: %v\n", err)
+			fmt.Printf("Por favor ejecuta 'orgm gauth' para obtener un token válido\n")
 			return
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -111,6 +112,15 @@ func NewApp() *App {
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	
+	// Verify authentication on startup
+	token, err := cmd.EnsureGCloudIDToken()
+	if err != nil || token == "" {
+		fmt.Printf("⚠️  Advertencia: Problema de autenticación detectado\n")
+		fmt.Printf("   Error: %v\n", err)
+		fmt.Printf("   Solución: Ejecuta 'orgm gauth' en la terminal para obtener un token válido\n")
+		fmt.Printf("   La aplicación puede funcionar con funcionalidad limitada\n")
+	}
 }
 
 // Proposal represents a proposal from the API
@@ -297,6 +307,22 @@ func (m *ModifyProposalResponse) UnmarshalJSON(data []byte) error {
 	// If all formats fail, set to zero time
 	m.CreatedAt = time.Time{}
 	return nil
+}
+
+// CheckAuthStatus checks the authentication status
+func (a *App) CheckAuthStatus() map[string]interface{} {
+	token, err := cmd.EnsureGCloudIDToken()
+	if err != nil || token == "" {
+		return map[string]interface{}{
+			"authenticated": false,
+			"error": err.Error(),
+			"message": "No se pudo obtener token de autenticación. Ejecuta 'orgm gauth' para obtener un token válido.",
+		}
+	}
+	return map[string]interface{}{
+		"authenticated": true,
+		"message": "Autenticación exitosa",
+	}
 }
 
 // GetProposals returns all proposals
