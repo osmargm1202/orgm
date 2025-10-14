@@ -377,3 +377,140 @@ func (a *App) CreateCotizacionFromProyecto(proyectoId, idServicio int) map[strin
 	}
 	return map[string]interface{}{"success": true, "data": cotizacion}
 }
+
+// GetCotizacionesRecientes gets the most recent cotizaciones
+func (a *App) GetCotizacionesRecientes(limit int) map[string]interface{} {
+	cotizaciones, err := a.client.GetCotizacionesRecientes(limit)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	return map[string]interface{}{"success": true, "data": cotizaciones}
+}
+
+// GetCotizacionFull gets a cotización with full data including presupuesto and totales
+func (a *App) GetCotizacionFull(id int) map[string]interface{} {
+	cotizacionFull, err := a.client.GetCotizacionFull(id)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	return map[string]interface{}{"success": true, "data": cotizacionFull}
+}
+
+// GetCotizacionByID gets a cotización by ID
+func (a *App) GetCotizacionByID(id int) map[string]interface{} {
+	cotizacion, err := a.client.GetCotizacionByID(id)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	return map[string]interface{}{"success": true, "data": cotizacion}
+}
+
+// SearchCotizaciones searches cotizaciones by query
+func (a *App) SearchCotizaciones(query string) map[string]interface{} {
+	cotizaciones, err := a.client.SearchCotizaciones(query)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	return map[string]interface{}{"success": true, "data": cotizaciones}
+}
+
+// CreateCotizacion creates a new cotización
+func (a *App) CreateCotizacion(idCliente, idProyecto, idServicio int, moneda, fecha string, tasaMoneda float64, tiempoEntrega, avance string, validez int, estado, idioma, descripcion, retencion string, descuentop, retencionp, itbisp float64) map[string]interface{} {
+	request := admappapi.CreateCotizacionRequest{
+		IDCliente:     idCliente,
+		IDProyecto:    idProyecto,
+		IDServicio:    idServicio,
+		Moneda:        moneda,
+		Fecha:         fecha,
+		TasaMoneda:    tasaMoneda,
+		TiempoEntrega: tiempoEntrega,
+		Avance:        avance,
+		Validez:       validez,
+		Estado:        estado,
+		Idioma:        idioma,
+		Descripcion:   descripcion,
+		Retencion:     retencion,
+		Descuentop:    descuentop,
+		Retencionp:    retencionp,
+		Itbisp:        itbisp,
+	}
+	
+	cotizacion, err := a.client.CreateCotizacion(request)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	return map[string]interface{}{"success": true, "data": cotizacion}
+}
+
+// UpdateCotizacion updates an existing cotización
+func (a *App) UpdateCotizacion(id int, moneda, fecha string, tasaMoneda float64, tiempoEntrega, avance string, validez int, estado, idioma, descripcion, retencion string, descuentop, retencionp, itbisp float64) map[string]interface{} {
+	request := admappapi.UpdateCotizacionRequest{
+		Moneda:        moneda,
+		Fecha:         fecha,
+		TasaMoneda:    tasaMoneda,
+		TiempoEntrega: tiempoEntrega,
+		Avance:        avance,
+		Validez:       validez,
+		Estado:        estado,
+		Idioma:        idioma,
+		Descripcion:   descripcion,
+		Retencion:     retencion,
+		Descuentop:    descuentop,
+		Retencionp:    retencionp,
+		Itbisp:        itbisp,
+	}
+	
+	cotizacion, err := a.client.UpdateCotizacion(id, request)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	return map[string]interface{}{"success": true, "data": cotizacion}
+}
+
+// DeleteCotizacion deletes a cotización
+func (a *App) DeleteCotizacion(id int) map[string]interface{} {
+	err := a.client.DeleteCotizacion(id)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	return map[string]interface{}{"success": true}
+}
+
+// HasCotizacionChanges checks if a cotización has unsaved changes
+func (a *App) HasCotizacionChanges(id int) map[string]interface{} {
+	hasChanges, err := a.client.HasCotizacionChanges(id)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	return map[string]interface{}{"success": true, "hasChanges": hasChanges}
+}
+
+// DownloadCotizacionPDF downloads a cotización PDF
+func (a *App) DownloadCotizacionPDF(id int, idioma string) map[string]interface{} {
+	pdfData, err := a.client.GetCotizacionPDF(id, idioma)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	
+	// Convert PDF bytes to base64 for frontend
+	pdfBase64 := base64.StdEncoding.EncodeToString(pdfData)
+	return map[string]interface{}{"success": true, "data": pdfBase64}
+}
+
+// GetCotizacionPagos gets payments assigned to a cotización
+func (a *App) GetCotizacionPagos(id int) map[string]interface{} {
+	pagos, err := a.client.GetCotizacionPagos(id)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	return map[string]interface{}{"success": true, "data": pagos}
+}
+
+// CalcularTotalesCotizacion calculates totals for a cotización
+func (a *App) CalcularTotalesCotizacion(id int, descuentop, retencionp, itbisp float64) map[string]interface{} {
+	totales, err := a.client.CalcularTotales(id, descuentop, retencionp, itbisp)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	return map[string]interface{}{"success": true, "data": totales}
+}

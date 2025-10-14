@@ -199,6 +199,49 @@ type CreateCotizacionRequest struct {
 	Itbisp         float64 `json:"itbisp"`
 }
 
+// UpdateCotizacionRequest represents the request for updating a cotización
+type UpdateCotizacionRequest struct {
+	Moneda         string  `json:"moneda"`
+	Fecha          string  `json:"fecha"`
+	TasaMoneda     float64 `json:"tasa_moneda"`
+	TiempoEntrega  string  `json:"tiempo_entrega"`
+	Avance         string  `json:"avance"`
+	Validez        int     `json:"validez"`
+	Estado         string  `json:"estado"`
+	Idioma         string  `json:"idioma"`
+	Descripcion    string  `json:"descripcion"`
+	Retencion      string  `json:"retencion"`
+	Descuentop     float64 `json:"descuentop"`
+	Retencionp     float64 `json:"retencionp"`
+	Itbisp         float64 `json:"itbisp"`
+}
+
+// CotizacionFull represents a cotización with full data including presupuesto and totales
+type CotizacionFull struct {
+	Cotizacion  Cotizacion             `json:"cotizacion"`
+	Presupuesto map[string]interface{} `json:"presupuesto"`
+	Notas       map[string]interface{} `json:"notas"`
+	Totales     Totales                `json:"totales"`
+}
+
+// Totales represents the calculated totals for a cotización
+type Totales struct {
+	Subtotal      float64 `json:"subtotal"`
+	Descuentom    float64 `json:"descuentom"`
+	Retencionm    float64 `json:"retencionm"`
+	Itbism        float64 `json:"itbism"`
+	TotalSinItbis float64 `json:"total_sin_itbis"`
+	Total         float64 `json:"total"`
+}
+
+// PagoAsignado represents a payment assigned to a cotización
+type PagoAsignado struct {
+	ID     int     `json:"id"`
+	IDPago int     `json:"id_pago"`
+	Monto  float64 `json:"monto"`
+	Fecha  string  `json:"fecha"`
+}
+
 // Client represents the API client for admin operations
 type Client struct {
 	BaseURL    string
@@ -755,6 +798,345 @@ func (c *Client) CreateCotizacionFromProyecto(proyectoId int, request CreateCoti
 	}
 	
 	return &cotizacion, nil
+}
+
+// GetCotizacionesRecientes gets the most recent cotizaciones
+func (c *Client) GetCotizacionesRecientes(limit int) ([]Cotizacion, error) {
+	url := fmt.Sprintf("%s/api/cotizaciones/recientes?limit=%d", c.BaseURL, limit)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %v", err)
+	}
+	
+	req.Header.Set("X-Tenant-Id", "1")
+	c.AuthFunc(req)
+	
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error calling API: %v", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+	
+	var cotizaciones []Cotizacion
+	if err := json.NewDecoder(resp.Body).Decode(&cotizaciones); err != nil {
+		return nil, fmt.Errorf("error decoding response: %v", err)
+	}
+	
+	return cotizaciones, nil
+}
+
+// GetCotizacionFull gets a cotización with full data including presupuesto and totales
+func (c *Client) GetCotizacionFull(id int) (*CotizacionFull, error) {
+	url := fmt.Sprintf("%s/api/cotizaciones/%d/full", c.BaseURL, id)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %v", err)
+	}
+	
+	req.Header.Set("X-Tenant-Id", "1")
+	c.AuthFunc(req)
+	
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error calling API: %v", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+	
+	var cotizacionFull CotizacionFull
+	if err := json.NewDecoder(resp.Body).Decode(&cotizacionFull); err != nil {
+		return nil, fmt.Errorf("error decoding response: %v", err)
+	}
+	
+	return &cotizacionFull, nil
+}
+
+// GetCotizacionByID gets a cotización by ID
+func (c *Client) GetCotizacionByID(id int) (*Cotizacion, error) {
+	url := fmt.Sprintf("%s/api/cotizaciones/by-id/%d", c.BaseURL, id)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %v", err)
+	}
+	
+	req.Header.Set("X-Tenant-Id", "1")
+	c.AuthFunc(req)
+	
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error calling API: %v", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+	
+	var cotizacion Cotizacion
+	if err := json.NewDecoder(resp.Body).Decode(&cotizacion); err != nil {
+		return nil, fmt.Errorf("error decoding response: %v", err)
+	}
+	
+	return &cotizacion, nil
+}
+
+// SearchCotizaciones searches cotizaciones by query
+func (c *Client) SearchCotizaciones(query string) ([]Cotizacion, error) {
+	url := fmt.Sprintf("%s/api/cotizaciones/search?q=%s", c.BaseURL, query)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %v", err)
+	}
+	
+	req.Header.Set("X-Tenant-Id", "1")
+	c.AuthFunc(req)
+	
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error calling API: %v", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+	
+	var cotizaciones []Cotizacion
+	if err := json.NewDecoder(resp.Body).Decode(&cotizaciones); err != nil {
+		return nil, fmt.Errorf("error decoding response: %v", err)
+	}
+	
+	return cotizaciones, nil
+}
+
+// CreateCotizacion creates a new cotización
+func (c *Client) CreateCotizacion(request CreateCotizacionRequest) (*Cotizacion, error) {
+	jsonData, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling request: %v", err)
+	}
+	
+	url := fmt.Sprintf("%s/api/cotizaciones", c.BaseURL)
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %v", err)
+	}
+	
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-Id", "1")
+	c.AuthFunc(req)
+	
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error calling API: %v", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+	
+	var cotizacion Cotizacion
+	if err := json.NewDecoder(resp.Body).Decode(&cotizacion); err != nil {
+		return nil, fmt.Errorf("error decoding response: %v", err)
+	}
+	
+	return &cotizacion, nil
+}
+
+// UpdateCotizacion updates an existing cotización
+func (c *Client) UpdateCotizacion(id int, request UpdateCotizacionRequest) (*Cotizacion, error) {
+	jsonData, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling request: %v", err)
+	}
+	
+	url := fmt.Sprintf("%s/api/cotizaciones/%d", c.BaseURL, id)
+	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %v", err)
+	}
+	
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-Id", "1")
+	c.AuthFunc(req)
+	
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error calling API: %v", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+	
+	var cotizacion Cotizacion
+	if err := json.NewDecoder(resp.Body).Decode(&cotizacion); err != nil {
+		return nil, fmt.Errorf("error decoding response: %v", err)
+	}
+	
+	return &cotizacion, nil
+}
+
+// DeleteCotizacion deletes a cotización
+func (c *Client) DeleteCotizacion(id int) error {
+	url := fmt.Sprintf("%s/api/cotizaciones/%d", c.BaseURL, id)
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return fmt.Errorf("error creating request: %v", err)
+	}
+	
+	req.Header.Set("X-Tenant-Id", "1")
+	c.AuthFunc(req)
+	
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("error calling API: %v", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+	
+	return nil
+}
+
+// HasCotizacionChanges checks if a cotización has unsaved changes
+func (c *Client) HasCotizacionChanges(id int) (bool, error) {
+	url := fmt.Sprintf("%s/api/cotizaciones/%d/has-changes", c.BaseURL, id)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return false, fmt.Errorf("error creating request: %v", err)
+	}
+	
+	req.Header.Set("X-Tenant-Id", "1")
+	c.AuthFunc(req)
+	
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("error calling API: %v", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return false, fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+	
+	var result struct {
+		HasChanges bool `json:"has_changes"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return false, fmt.Errorf("error decoding response: %v", err)
+	}
+	
+	return result.HasChanges, nil
+}
+
+// GetCotizacionPDF downloads a cotización PDF
+func (c *Client) GetCotizacionPDF(id int, idioma string) ([]byte, error) {
+	url := fmt.Sprintf("%s/api/cotizaciones/%d/pdf?idioma=%s", c.BaseURL, id, idioma)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %v", err)
+	}
+	
+	req.Header.Set("X-Tenant-Id", "1")
+	c.AuthFunc(req)
+	
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error calling API: %v", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+	
+	pdfData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading PDF data: %v", err)
+	}
+	
+	return pdfData, nil
+}
+
+// GetCotizacionPagos gets payments assigned to a cotización
+func (c *Client) GetCotizacionPagos(id int) ([]PagoAsignado, error) {
+	url := fmt.Sprintf("%s/api/cotizaciones/%d/pagos", c.BaseURL, id)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %v", err)
+	}
+	
+	req.Header.Set("X-Tenant-Id", "1")
+	c.AuthFunc(req)
+	
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error calling API: %v", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+	
+	var pagos []PagoAsignado
+	if err := json.NewDecoder(resp.Body).Decode(&pagos); err != nil {
+		return nil, fmt.Errorf("error decoding response: %v", err)
+	}
+	
+	return pagos, nil
+}
+
+// CalcularTotales calculates totals for a cotización
+func (c *Client) CalcularTotales(id int, descuentop, retencionp, itbisp float64) (*Totales, error) {
+	url := fmt.Sprintf("%s/api/cotizaciones/%d/presupuesto/calc", c.BaseURL, id)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %v", err)
+	}
+	
+	req.Header.Set("X-Tenant-Id", "1")
+	c.AuthFunc(req)
+	
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error calling API: %v", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+	
+	var totales Totales
+	if err := json.NewDecoder(resp.Body).Decode(&totales); err != nil {
+		return nil, fmt.Errorf("error decoding response: %v", err)
+	}
+	
+	return &totales, nil
 }
 
 // GetBaseURL gets the base URL from config, works for both CLI and Wails contexts

@@ -17,3 +17,10 @@ to this in your browser, and you can call your Go code from devtools.
 ## Building
 
 To build a redistributable, production mode package, use `wails build`.
+
+
+## wails
+
+  // "frontend:install": "npm install --no-optional --no-fund --no-audit",
+  // "frontend:build": "npm run build",
+  // "frontend:dev:watcher": "npm run dev",

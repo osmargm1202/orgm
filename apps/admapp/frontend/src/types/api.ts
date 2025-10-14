@@ -189,4 +189,68 @@ export interface Cotizacion {
   activo: boolean;
   created_at: string;
   updated_at: string;
+  // Joined fields
+  cliente_nombre?: string;
+  proyecto_nombre?: string;
+  servicio_nombre?: string;
+}
+
+export interface CotizacionFormData {
+  id: number | null;
+  id_cliente: number | null;
+  id_proyecto: number | null;
+  id_servicio: number | null;
+  moneda: string;
+  fecha: string;
+  tasa_moneda: number;
+  tiempo_entrega: string;
+  avance: string;
+  validez: number;
+  estado: string;
+  idioma: string;
+  descripcion: string;
+  retencion: string;
+  descuentop: number;
+  retencionp: number;
+  itbisp: number;
+}
+
+export interface Totales {
+  subtotal: number;
+  descuentom: number;
+  retencionm: number;
+  itbism: number;
+  total_sin_itbis: number;
+  total: number;
+}
+
+export interface PagoAsignado {
+  id: number;
+  id_pago: number;
+  monto: number;
+  fecha: string;
+}
+
+export interface CotizacionFormState {
+  formData: CotizacionFormData;
+  isNew: boolean;
+  isLoading: boolean;
+  errors: Record<string, string>;
+  totales: Totales | null;
+  pagos: PagoAsignado[];
+}
+
+export interface CotizacionesListState {
+  cotizaciones: Cotizacion[];
+  filteredCotizaciones: Cotizacion[];
+  searchTerm: string;
+  idFilter: string;
+  isLoading: boolean;
+  selectedCotizacion: Cotizacion | null;
+}
+
+export interface CotizacionesPageState {
+  listState: CotizacionesListState;
+  formState: CotizacionFormState;
+  showForm: boolean;
 }

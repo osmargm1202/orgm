@@ -3,6 +3,7 @@ import Header from './Header';
 import Sidebar from './Sidebar';
 import ClientesPage from './Clientes/ClientesPage';
 import ProyectosPage from './Proyectos/ProyectosPage';
+import CotizacionesPage from './Cotizaciones/CotizacionesPage';
 
 const Layout: React.FC = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -22,6 +23,8 @@ const Layout: React.FC = () => {
         return <ClientesPage />;
       case 'proyectos':
         return <ProyectosPage />;
+      case 'cotizaciones':
+        return <CotizacionesPage />;
       default:
         return <ClientesPage />;
     }
