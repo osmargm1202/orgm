@@ -638,7 +638,7 @@
 
         // Inicialización
         document.addEventListener('DOMContentLoaded', function() {
-            loadProposals();
+            checkAuthStatus();
             setupEventListeners();
         });
 
@@ -654,6 +654,36 @@
             document.getElementById('modifyProposalForm').addEventListener('submit', handleModifyProposal);
             document.getElementById('regenerateProposalForm').addEventListener('submit', handleRegenerateProposal);
             document.getElementById('updateTitleSubtitleForm').addEventListener('submit', handleUpdateTitleSubtitle);
+        }
+
+        // Verificar estado de autenticación
+        async function checkAuthStatus() {
+            try {
+                const authStatus = await window.go.main.App.CheckAuthStatus();
+                if (!authStatus.authenticated) {
+                    showMessage(authStatus.message, 'error');
+                    // Mostrar mensaje de error en la tabla
+                    const tbody = document.getElementById('proposalsTableBody');
+                    tbody.innerHTML = `
+                        <tr>
+                            <td colspan="4" class="text-center py-4">
+                                <div class="alert alert-danger mb-0">
+                                    <i class="bi bi-exclamation-triangle"></i>
+                                    <strong>Error de Autenticación</strong><br>
+                                    <small>${authStatus.message}</small>
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                    document.getElementById('proposalCount').textContent = 'Error de autenticación';
+                    return;
+                }
+                // Si la autenticación es exitosa, cargar propuestas
+                loadProposals();
+            } catch (error) {
+                console.error('Error verificando autenticación:', error);
+                showMessage('Error verificando autenticación: ' + error.message, 'error');
+            }
         }
 
         // Cargar propuestas

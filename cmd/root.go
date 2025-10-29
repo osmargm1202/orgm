@@ -101,10 +101,8 @@ func initConfig() {
 			// Other error reading config file
 			fmt.Fprintf(os.Stderr, "Warning: Error reading config file: %v\n", err)
 		}
-	} else {
-		// Config file found and successfully parsed
-		fmt.Println("Loaded config.toml")
 	}
+	// Note: Don't print "Loaded config.toml" as it pollutes stdout for CLI commands
 
 }
 

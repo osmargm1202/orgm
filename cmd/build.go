@@ -39,6 +39,8 @@ var GobuildCmd = &cobra.Command{
 		fmt.Println("Generated files:")
 		fmt.Println("  - orgm (Linux binary)")
 		fmt.Println("  - orgm.exe (Windows binary)")
+		fmt.Println("  - orgm-prop (Linux binary)")
+		fmt.Println("  - orgm-prop.exe (Windows binary)")
 	},
 }
 

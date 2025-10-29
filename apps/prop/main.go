@@ -9,9 +9,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
-	"github.com/osmargm1202/orgm/cmd"
 	"github.com/osmargm1202/orgm/pkg/propapi"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -20,6 +20,52 @@ import (
 
 //go:embed all:frontend/dist
 var assets embed.FS
+
+// Helper function to execute CLI commands
+func executeCLICommand(command string, args []string) (string, error) {
+	// Find the orgm binary - first try PATH, then look for it in common locations
+	orgmPath := "orgm"
+	
+	// Try to find orgm in PATH
+	path, err := exec.LookPath(orgmPath)
+	if err == nil {
+		orgmPath = path
+	} else {
+		// Try common locations
+		homeDir, _ := os.UserHomeDir()
+		candidatePaths := []string{
+			filepath.Join(homeDir, ".local", "bin", "orgm"),
+			filepath.Join(homeDir, "bin", "orgm"),
+			"/usr/local/bin/orgm",
+			"/usr/bin/orgm",
+		}
+		for _, candidate := range candidatePaths {
+			if _, err := os.Stat(candidate); err == nil {
+				orgmPath = candidate
+				break
+			}
+		}
+	}
+	
+	cmd := exec.Command(orgmPath, append([]string{command}, args...)...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Include the output in the error message for debugging
+		return "", fmt.Errorf("error executing orgm %s: %v\nOutput: %s", command, err, string(output))
+	}
+	
+	return strings.TrimSpace(string(output)), nil
+}
+
+// Get configuration value from CLI
+func getConfigFromCLI(key string) (string, error) {
+	return executeCLICommand("viper", []string{"get", key})
+}
+
+// Get authentication token from CLI
+func getTokenFromCLI() (string, error) {
+	return executeCLICommand("gauth", []string{"--print-token"})
+}
 
 // Config represents the configuration structure
 type Config struct {
@@ -82,16 +128,16 @@ func (t *TokenInfo) UnmarshalJSON(data []byte) error {
 
 // NewApp creates a new App application struct
 func NewApp() *App {
-	// Get base URL
-	baseURL, err := propapi.GetBaseURL()
+	// Get base URL from CLI
+	baseURL, err := getConfigFromCLI("propuestas_api")
 	if err != nil {
 		fmt.Printf("Error getting base URL: %v\n", err)
 		baseURL = "http://localhost:8000" // fallback
 	}
 
-	// Create auth function that uses cmd.EnsureGCloudIDToken
+	// Create auth function that uses CLI to get token
 	authFunc := func(req *http.Request) {
-		token, err := cmd.EnsureGCloudIDToken()
+		token, err := getTokenFromCLI()
 		if err != nil || token == "" {
 			fmt.Printf("Error: No se pudo obtener token de autenticación: %v\n", err)
 			fmt.Printf("Por favor ejecuta 'orgm gauth' para obtener un token válido\n")
@@ -114,7 +160,7 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	
 	// Verify authentication on startup
-	token, err := cmd.EnsureGCloudIDToken()
+	token, err := getTokenFromCLI()
 	if err != nil || token == "" {
 		fmt.Printf("⚠️  Advertencia: Problema de autenticación detectado\n")
 		fmt.Printf("   Error: %v\n", err)
@@ -311,11 +357,15 @@ func (m *ModifyProposalResponse) UnmarshalJSON(data []byte) error {
 
 // CheckAuthStatus checks the authentication status
 func (a *App) CheckAuthStatus() map[string]interface{} {
-	token, err := cmd.EnsureGCloudIDToken()
+	token, err := getTokenFromCLI()
 	if err != nil || token == "" {
+		errorMsg := "Unknown error"
+		if err != nil {
+			errorMsg = err.Error()
+		}
 		return map[string]interface{}{
 			"authenticated": false,
-			"error": err.Error(),
+			"error": errorMsg,
 			"message": "No se pudo obtener token de autenticación. Ejecuta 'orgm gauth' para obtener un token válido.",
 		}
 	}

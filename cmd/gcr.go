@@ -19,11 +19,14 @@ import (
 
 // EnsureGCloudIDTokenForAudience obtains an ID token for a specific audience URL.
 // Credentials file is expected at `<config_path>/orgmdev_google.json`.
-func EnsureGCloudIDTokenForAudience(audience string) (string, error) {
+// quiet parameter suppresses output (useful for CLI mode)
+func EnsureGCloudIDTokenForAudience(audience string, quiet bool) (string, error) {
     // Try disk cache first
     if cachedTok, cachedExp, ok := LoadCachedToken(); ok {
         if time.Unix(cachedExp, 0).After(time.Now().Add(2 * time.Minute)) {
-            fmt.Println("💾 Token obtenido utilizando el caché")
+            if !quiet {
+                fmt.Println("💾 Token obtenido utilizando el caché")
+            }
             return cachedTok, nil
         }
     }
@@ -58,7 +61,9 @@ func EnsureGCloudIDTokenForAudience(audience string) (string, error) {
     }
 
     // Print which credentials file is being used
-    fmt.Printf("🔑 Usando credenciales de Google: %s\n", filepath.Base(credFile))
+    if !quiet {
+        fmt.Printf("🔑 Usando credenciales de Google: %s\n", filepath.Base(credFile))
+    }
 
     ctx := context.Background()
 
@@ -103,7 +108,7 @@ func EnsureGCloudIDToken() (string, error) {
     if audience == "" {
         return "", fmt.Errorf("url.propuestas_api no está configurado")
     }
-    return EnsureGCloudIDTokenForAudience(audience)
+    return EnsureGCloudIDTokenForAudience(audience, false)
 }
 
 // Cloud Run user management functions
@@ -247,11 +252,37 @@ var GAuthCmd = &cobra.Command{
     Short: "Obtener token de autenticación de Google para Cloud Run",
     Long:  "Obtiene y almacena un token de autenticación de Google para Cloud Run",
     Run: func(cmd *cobra.Command, args []string) {
-        token, err := EnsureGCloudIDToken()
-        if err != nil {
-            fmt.Println("❌ ", err.Error())
+        printToken, _ := cmd.Flags().GetBool("print-token")
+        
+        // Get audience URL
+        audience := viper.GetString("url.propuestas_api")
+        if audience == "" {
+            if printToken {
+                fmt.Fprintf(os.Stderr, "Error: url.propuestas_api no está configurado\n")
+                os.Exit(1)
+            } else {
+                fmt.Println("❌ url.propuestas_api no está configurado")
+            }
             return
         }
+        
+        token, err := EnsureGCloudIDTokenForAudience(audience, printToken)
+        if err != nil {
+            if printToken {
+                fmt.Fprintf(os.Stderr, "Error: %s\n", err.Error())
+                os.Exit(1)
+            } else {
+                fmt.Println("❌ ", err.Error())
+            }
+            return
+        }
+        
+        // If print-token flag, just output the token
+        if printToken {
+            fmt.Print(token)
+            return
+        }
+        
         // Do not print full token; just confirm
         fmt.Println("✅ Token obtenido y almacenado en archivo de caché")
         if _, exp, ok := LoadCachedToken(); ok {
@@ -339,6 +370,7 @@ func init() {
     GAuthCmd.AddCommand(DeleteCmd)
     
     // Add flags
+    GAuthCmd.Flags().BoolP("print-token", "p", false, "Print only the token (for use in scripts)")
     DownloadCmd.Flags().StringP("output", "o", "", "Ruta de salida para el archivo JSON (por defecto: ./[usuario].json)")
 }
 

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
@@ -17,6 +18,18 @@ var viperCmd = &cobra.Command{
 	Long:  `Display all configuration variables loaded from config.toml, links.toml, and keys.toml files.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		showViperConfig()
+	},
+}
+
+// getCmd is a subcommand to get a specific config value
+var getCmd = &cobra.Command{
+	Use:   "get [key]",
+	Short: "Get a specific configuration value",
+	Long:  `Get a specific configuration value by key. Supports both full keys (url.propuestas_api) or short keys (propuestas_api).`,
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		key := args[0]
+		getConfigValue(key)
 	},
 }
 
@@ -123,6 +136,31 @@ func formatValue(value interface{}) string {
 	}
 }
 
+func getConfigValue(key string) {
+	// Try to find the key with various formats
+	// 1. Try exact key as provided
+	if viper.IsSet(key) {
+		value := viper.GetString(key)
+		fmt.Print(value)
+		return
+	}
+
+	// 2. Try with "url." prefix for backwards compatibility
+	if !strings.Contains(key, ".") {
+		fullKey := "url." + key
+		if viper.IsSet(fullKey) {
+			value := viper.GetString(fullKey)
+			fmt.Print(value)
+			return
+		}
+	}
+
+	// If key not found, exit with error
+	fmt.Fprintf(os.Stderr, "Error: Config key '%s' not found\n", key)
+	os.Exit(1)
+}
+
 func init() {
 	RootCmd.AddCommand(viperCmd)
+	viperCmd.AddCommand(getCmd)
 }

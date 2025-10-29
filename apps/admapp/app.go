@@ -7,13 +7,60 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
-	"github.com/osmargm1202/orgm/cmd"
 	"github.com/osmargm1202/orgm/pkg/admappapi"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+// Helper function to execute CLI commands
+func executeCLICommand(command string, args []string) (string, error) {
+	// Find the orgm binary - first try PATH, then look for it in common locations
+	orgmPath := "orgm"
+	
+	// Try to find orgm in PATH
+	path, err := exec.LookPath(orgmPath)
+	if err == nil {
+		orgmPath = path
+	} else {
+		// Try common locations
+		homeDir, _ := os.UserHomeDir()
+		candidatePaths := []string{
+			filepath.Join(homeDir, ".local", "bin", "orgm"),
+			filepath.Join(homeDir, "bin", "orgm"),
+			"/usr/local/bin/orgm",
+			"/usr/bin/orgm",
+		}
+		for _, candidate := range candidatePaths {
+			if _, err := os.Stat(candidate); err == nil {
+				orgmPath = candidate
+				break
+			}
+		}
+	}
+	
+	cmd := exec.Command(orgmPath, append([]string{command}, args...)...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Include the output in the error message for debugging
+		return "", fmt.Errorf("error executing orgm %s: %v\nOutput: %s", command, err, string(output))
+	}
+	
+	return strings.TrimSpace(string(output)), nil
+}
+
+// Get configuration value from CLI
+func getConfigFromCLI(key string) (string, error) {
+	return executeCLICommand("viper", []string{"get", key})
+}
+
+// Get authentication token from CLI
+func getTokenFromCLI() (string, error) {
+	return executeCLICommand("gauth", []string{"--print-token"})
+}
 
 // App struct
 type App struct {
@@ -23,17 +70,17 @@ type App struct {
 
 // NewApp creates a new App application struct
 func NewApp() *App {
-	// Get base URL
-	baseURL, err := admappapi.GetBaseURL()
+	// Get base URL from CLI
+	baseURL, err := getConfigFromCLI("admapp_api")
 	if err != nil {
 		fmt.Printf("⚠️ Error getting base URL: %v\n", err)
 		baseURL = "http://localhost:8000" // fallback
 	}
 	fmt.Printf("🌐 Base URL configurada: %s\n", baseURL)
 
-	// Create auth function that uses cmd.EnsureGCloudIDTokenForAudience
+	// Create auth function that uses CLI to get token
 	authFunc := func(req *http.Request) {
-		token, err := cmd.EnsureGCloudIDTokenForAudience(baseURL)
+		token, err := getTokenFromCLI()
 		if err != nil || token == "" {
 			fmt.Printf("⚠️ Warning: No se pudo obtener token de autenticación: %v\n", err)
 			return
