@@ -109,6 +109,7 @@ func initConfig() {
 
 func updateFunc() {
 	fmt.Printf("%s\n", inputs.TitleStyle.Render("🚀 Updating ORGM to latest version"))
+	log.Printf("[DEBUG] Starting update process for OS: %s", runtime.GOOS)
 
 	var installerURL, installerName string
 
@@ -121,48 +122,85 @@ func updateFunc() {
 		installerName = "install.sh"
 	default:
 		fmt.Printf("❌ Unsupported operating system: %s\n", runtime.GOOS)
+		log.Printf("[DEBUG] Unsupported OS: %s", runtime.GOOS)
 		return
 	}
 
+	log.Printf("[DEBUG] Installer URL: %s", installerURL)
+	log.Printf("[DEBUG] Installer name: %s", installerName)
+
 	// Download the installer
 	fmt.Printf("%s\n", inputs.InfoStyle.Render("📥 Downloading installer..."))
+	log.Printf("[DEBUG] Downloading installer from: %s", installerURL)
 
 	resp, err := http.Get(installerURL)
 	if err != nil {
 		fmt.Printf("❌ Error downloading installer: %v\n", err)
+		log.Printf("[DEBUG] Error downloading installer: %v", err)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		fmt.Printf("❌ Error: HTTP %d when downloading installer\n", resp.StatusCode)
+		log.Printf("[DEBUG] HTTP error when downloading installer: %d", resp.StatusCode)
 		return
 	}
 
+	log.Printf("[DEBUG] Download successful. Status code: %d, Content-Length: %d", resp.StatusCode, resp.ContentLength)
+
 	// Create temporary installer file
 	tempFile := filepath.Join(os.TempDir(), installerName)
+	log.Printf("[DEBUG] Creating temporary file: %s", tempFile)
+
 	out, err := os.Create(tempFile)
 	if err != nil {
 		fmt.Printf("❌ Error creating temporary file: %v\n", err)
+		log.Printf("[DEBUG] Error creating temporary file: %v", err)
 		return
 	}
 
 	// Copy installer content to temporary file
-	_, err = io.Copy(out, resp.Body)
-	out.Close()
+	bytesWritten, err := io.Copy(out, resp.Body)
 	if err != nil {
+		out.Close()
 		fmt.Printf("❌ Error writing installer: %v\n", err)
+		log.Printf("[DEBUG] Error writing installer: %v", err)
+		os.Remove(tempFile)
+		return
+	}
+	out.Close()
+
+	log.Printf("[DEBUG] Written %d bytes to temporary file", bytesWritten)
+
+	// Validate that file was written correctly
+	fileInfo, err := os.Stat(tempFile)
+	if err != nil {
+		fmt.Printf("❌ Error validating downloaded file: %v\n", err)
+		log.Printf("[DEBUG] Error validating downloaded file: %v", err)
 		os.Remove(tempFile)
 		return
 	}
 
+	if fileInfo.Size() == 0 {
+		fmt.Printf("❌ Error: Downloaded file is empty\n")
+		log.Printf("[DEBUG] Downloaded file is empty")
+		os.Remove(tempFile)
+		return
+	}
+
+	log.Printf("[DEBUG] File validated. Size: %d bytes", fileInfo.Size())
+
 	// Make installer executable on Unix systems
 	if runtime.GOOS != "windows" {
+		log.Printf("[DEBUG] Setting executable permissions on: %s", tempFile)
 		if err := os.Chmod(tempFile, 0755); err != nil {
 			fmt.Printf("❌ Error setting executable permissions: %v\n", err)
+			log.Printf("[DEBUG] Error setting executable permissions: %v", err)
 			os.Remove(tempFile)
 			return
 		}
+		log.Printf("[DEBUG] Executable permissions set successfully")
 	}
 
 	// Special handling for Windows: cannot replace running executable
@@ -171,41 +209,99 @@ func updateFunc() {
 		fmt.Printf("%s\n", inputs.InfoStyle.Render("   The installer will open in a new window. Please CLOSE this terminal or any running orgm.exe before continuing the update."))
 		fmt.Printf("%s\n", inputs.InfoStyle.Render("   Press ENTER to continue and launch the installer..."))
 		fmt.Scanln()
+
+		log.Printf("[DEBUG] Launching Windows installer in new window: %s", tempFile)
 		// Start installer in a new window and exit this process
 		cmd := exec.Command("cmd", "/C", "start", "", tempFile)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		cmd.Stdin = os.Stdin
+
 		err = cmd.Start()
+		if err != nil {
+			fmt.Printf("❌ Error launching installer: %v\n", err)
+			log.Printf("[DEBUG] Error launching installer: %v", err)
+			os.Remove(tempFile)
+			return
+		}
+
+		log.Printf("[DEBUG] Installer launched successfully. PID: %d", cmd.Process.Pid)
+
 		// Clean up temporary file after a short delay (let installer copy itself if needed)
 		go func(f string) {
 			time.Sleep(30 * time.Second)
-			os.Remove(f)
+			if err := os.Remove(f); err != nil {
+				log.Printf("[DEBUG] Error removing temporary file after delay: %v", err)
+			} else {
+				log.Printf("[DEBUG] Temporary file removed after delay: %s", f)
+			}
 		}(tempFile)
-		if err != nil {
-			fmt.Printf("❌ Error launching installer: %v\n", err)
-			return
-		}
+
 		fmt.Printf("%s\n", inputs.SuccessStyle.Render("✅ Installer launched. Please follow the instructions in the new window."))
 		return
 	}
 
 	// For Linux/macOS, run installer directly
 	fmt.Printf("%s\n", inputs.InfoStyle.Render("🔧 Running installer..."))
+	log.Printf("[DEBUG] Executing installer script: %s", tempFile)
 
-	cmd := exec.Command("bash", tempFile)
+	// Try to execute directly first (since we set executable permissions)
+	cmd := exec.Command(tempFile)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 
 	err = cmd.Run()
+	if err != nil {
+		// Fallback: try with shell detection
+		log.Printf("[DEBUG] Direct execution failed, trying with shell. Error: %v", err)
+
+		var shell string
+		// Try to detect shell from environment
+		if shellEnv := os.Getenv("SHELL"); shellEnv != "" {
+			shell = shellEnv
+			log.Printf("[DEBUG] Using shell from SHELL env: %s", shell)
+		} else {
+			// Fallback to common shells
+			shells := []string{"bash", "sh", "zsh"}
+			for _, s := range shells {
+				if _, err := exec.LookPath(s); err == nil {
+					shell = s
+					log.Printf("[DEBUG] Found shell in PATH: %s", shell)
+					break
+				}
+			}
+		}
+
+		if shell == "" {
+			fmt.Printf("❌ Error running installer: %v\n", err)
+			log.Printf("[DEBUG] No suitable shell found and direct execution failed")
+			os.Remove(tempFile)
+			return
+		}
+
+		log.Printf("[DEBUG] Retrying with shell: %s", shell)
+		cmd = exec.Command(shell, tempFile)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Stdin = os.Stdin
+
+		err = cmd.Run()
+		if err != nil {
+			fmt.Printf("❌ Error running installer: %v\n", err)
+			log.Printf("[DEBUG] Error running installer with shell %s: %v", shell, err)
+			os.Remove(tempFile)
+			return
+		}
+	}
+
+	log.Printf("[DEBUG] Installer executed successfully")
 
 	// Clean up temporary file
-	os.Remove(tempFile)
-
-	if err != nil {
-		fmt.Printf("❌ Error running installer: %v\n", err)
-		return
+	if err := os.Remove(tempFile); err != nil {
+		log.Printf("[DEBUG] Warning: Could not remove temporary file: %v", err)
+	} else {
+		log.Printf("[DEBUG] Temporary file removed: %s", tempFile)
 	}
 
 	fmt.Printf("%s\n", inputs.SuccessStyle.Render("✅ ORGM updated successfully!"))
@@ -218,4 +314,6 @@ func updateFunc() {
 		fmt.Printf("%s\n", inputs.InfoStyle.Render("   • source ~/.bashrc (or ~/.zshrc)"))
 		fmt.Printf("%s\n", inputs.InfoStyle.Render("   • Or open a new terminal"))
 	}
+
+	log.Printf("[DEBUG] Update process completed successfully")
 }
