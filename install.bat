@@ -10,8 +10,6 @@ REM Variables
 set "INSTALL_DIR=%USERPROFILE%\.config\orgm"
 set "BINARY_URL=https://raw.githubusercontent.com/osmargm1202/orgm/main/orgm.exe"
 set "BINARY_PATH=%INSTALL_DIR%\orgm.exe"
-set "ORGM_PROP_BINARY_URL=https://raw.githubusercontent.com/osmargm1202/orgm/main/apps/prop/build/bin/orgm-prop.exe"
-set "ORGM_PROP_BINARY_PATH=%INSTALL_DIR%\orgm-prop.exe"
 
 REM Create installation directory if it doesn't exist
 echo Creating installation directory: %INSTALL_DIR%
@@ -25,15 +23,6 @@ powershell -Command "try { Invoke-WebRequest -Uri '%BINARY_URL%' -OutFile '%BINA
 
 if not exist "%BINARY_PATH%" (
     echo Error: Failed to download ORGM binary
-    exit /b 1
-)
-
-REM Download the ORGM orgm-prop binary
-echo Downloading ORGM orgm-prop binary...
-powershell -Command "try { Invoke-WebRequest -Uri '%ORGM_PROP_BINARY_URL%' -OutFile '%ORGM_PROP_BINARY_PATH%' -UseBasicParsing } catch { Write-Host 'Error downloading ORGM orgm-prop file: ' $_.Exception.Message; exit 1 }"
-
-if not exist "%ORGM_PROP_BINARY_PATH%" (
-    echo Error: Failed to download ORGM orgm-prop binary
     exit /b 1
 )
 
@@ -73,6 +62,29 @@ if errorlevel 1 (
     echo %INSTALL_DIR% is already in your PATH
 )
 
+REM Create desktop shortcut for Gestor de Propuestas
+echo.
+echo Creating desktop shortcut...
+set "APP_NAME=Gestor de Propuestas"
+set "ICON_URL=https://raw.githubusercontent.com/osmargm1202/orgm/main/sc/propuestas-icon.png"
+set "DESKTOP_PATH=%USERPROFILE%\Desktop"
+set "SHORTCUT_PATH=%DESKTOP_PATH%\%APP_NAME%.lnk"
+set "ICON_PATH=%INSTALL_DIR%\propuestas-icon.ico"
+
+REM Download icon and convert to .ico if needed
+echo Downloading icon...
+powershell -Command "try { $webClient = New-Object System.Net.WebClient; $webClient.DownloadFile('%ICON_URL%', '%INSTALL_DIR%\propuestas-icon.png'); Write-Host 'Icon downloaded' } catch { Write-Host 'Warning: Could not download icon' }"
+
+REM Create shortcut using PowerShell
+echo Creating shortcut...
+powershell -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%SHORTCUT_PATH%'); $s.TargetPath = '%BINARY_PATH%'; $s.Arguments = 'prop'; $s.WorkingDirectory = '%INSTALL_DIR%'; if (Test-Path '%INSTALL_DIR%\propuestas-icon.png') { $s.IconLocation = '%INSTALL_DIR%\propuestas-icon.png,0' }; $s.Description = 'Gestor de propuestas con interfaz TUI'; $s.Save(); Write-Host 'Shortcut created'"
+
+if exist "%SHORTCUT_PATH%" (
+    echo Desktop shortcut created at: %SHORTCUT_PATH%
+) else (
+    echo Warning: Could not create desktop shortcut
+)
+
 REM Test installation
 echo.
 echo Testing installation...
@@ -83,11 +95,11 @@ if errorlevel 1 (
 ) else (
     echo ORGM CLI installed successfully!
     echo Installed at: %BINARY_PATH%
-    echo orgm-prop binary at: %ORGM_PROP_BINARY_PATH%
     echo.
     echo You can now use 'orgm' command in new terminals!
     echo Try: orgm --help
-    echo Try: orgm prop orgm-prop (for GUI interface)
+    echo Try: orgm prop (for TUI interface)
+    echo You can also launch "Gestor de Propuestas" from your desktop shortcut
 )
 
 echo.

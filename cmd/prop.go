@@ -1,218 +1,2233 @@
 package cmd
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
-	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/app"
-	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/widget"
-	"github.com/osmargm1202/orgm/inputs"
+	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textarea"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/osmargm1202/orgm/pkg/propapi"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 // PropCmd represents the prop command
 var PropCmd = &cobra.Command{
 	Use:   "prop",
-	Short: "Gestión de propuestas con API",
-	Long: `Comando para crear, modificar y gestionar propuestas usando la API de propuestas.
-
-Subcomandos disponibles:
-  new     Crear nueva propuesta con interfaz gráfica
-  mod     Modificar propuesta existente con interfaz gráfica
-  view    Ver y descargar propuestas con interfaz gráfica`,
-    PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-        // Ensure token for all subcommands
-        if _, err := EnsureGCloudIDToken(); err != nil {
-            return fmt.Errorf("error obteniendo token: %w", err)
-        }
-        return nil
-    },
+	Short: "Gestión de propuestas con TUI",
+	Long:  `Gestión de propuestas con interfaz TUI usando Bubbletea.`,
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		// Ensure token for all subcommands
+		if _, err := EnsureGCloudIDToken(); err != nil {
+			return fmt.Errorf("error obteniendo token: %w", err)
+		}
+		return nil
+	},
 	Run: func(cmd *cobra.Command, args []string) {
-		showMainProposalMenu()
+		runPropTUI()
 	},
 }
-
-// newCmd represents the new command
-var newCmd = &cobra.Command{
-	Use:   "new",
-	Short: "Crear nueva propuesta con interfaz gráfica",
-	Long:  `Crea una nueva propuesta usando interfaz gráfica con yad`,
-	Run: func(cmd *cobra.Command, args []string) {
-		createNewProposalGUI()
-	},
-}
-
-
-// installCmd represents the install command
-var installCmd = &cobra.Command{
-	Use:   "install",
-	Short: "Instalar aplicación de escritorio",
-	Long:  `Crea un archivo .desktop para acceder a la aplicación desde el menú de aplicaciones`,
-	Run: func(cmd *cobra.Command, args []string) {
-		installDesktopApp()
-	},
-}
-
-// fyneCmd represents the fyne command
-var fyneCmd = &cobra.Command{
-	Use:   "fyne",
-	Short: "Gestión de propuestas con interfaz Fyne",
-	Long:  `Comando para crear, modificar y gestionar propuestas usando la API de propuestas con interfaz gráfica Fyne`,
-	Run: func(cmd *cobra.Command, args []string) {
-		showMainProposalMenuFyne()
-	},
-}
-
-
-
 
 func init() {
-	// Add subcommands to prop
-	PropCmd.AddCommand(newCmd)
-	PropCmd.AddCommand(installCmd)
-	PropCmd.AddCommand(fyneCmd)
+	// No subcommands needed - all functionality is in the TUI
 }
 
-func getBaseURL() (string, error) {
-	// Try viper first (CLI context)
-	baseURL := viper.GetString("url.propuestas_api")
-	if baseURL != "" {
-		return strings.TrimSuffix(baseURL, "/"), nil
+var (
+	docStyle = lipgloss.NewStyle().Margin(1, 2)
+	titleStyle = lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("12")).
+		Padding(1)
+	selectedStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("39")).
+		Bold(true)
+	normalStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("240"))
+	errorStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("196")).
+		Bold(true)
+	successStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("46")).
+		Bold(true)
+	infoStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("33"))
+)
+
+// State type for navigation
+type state int
+
+const (
+	stateUnified state = iota // Estado unificado - todo en una pantalla
+	stateMainMenu
+	stateNewProposal
+	stateGenerationMenu
+	stateProposalsList
+	stateProposalManagement
+	stateRegenerate
+	stateUpdateTitleSubtitle
+	stateModifyProposal
+	statePDFMode
+	stateLoading
+)
+
+// Main model that holds all sub-models
+type appModel struct {
+	state state
+	
+	// Client
+	client *propapi.Client
+	
+	// Main menu
+	mainMenuCursor int
+	mainMenuItems  []string
+	
+	// New proposal form
+	titleInput    textarea.Model
+	subtitleInput textarea.Model
+	promptInput   textarea.Model
+	formFocus     int // 0: title, 1: subtitle, 2: prompt
+	
+	// Generation menu
+	genMenuCursor int
+	genMenuItems  []string
+	genRequest    propapi.TextGenerationRequest
+	
+	// Proposals list
+	proposalsList list.Model
+	proposals     []propapi.Proposal
+	
+	// Proposal management
+	selectedProposal *propapi.Proposal
+	mgmtMenuCursor   int
+	mgmtMenuItems    []string
+	
+	// Regenerate form
+	regTitleInput    textarea.Model
+	regSubtitleInput textarea.Model
+	regPromptInput   textarea.Model
+	regFormFocus     int
+	
+	// Update title/subtitle form
+	updateTitleInput    textarea.Model
+	updateSubtitleInput textarea.Model
+	updateFormFocus     int
+	
+	// Modify form
+	modTitleInput    textarea.Model
+	modSubtitleInput textarea.Model
+	modPromptInput   textarea.Model
+	modFormFocus     int
+	
+	// PDF mode
+	pdfModeCursor int
+	pdfModeItems  []string
+	
+	// Loading
+	loadingSpinner spinner.Model
+	loadingMsg     string
+	
+	// Error/Success messages
+	message     string
+	messageType string // "error", "success", "info"
+	
+	// Unified view control
+	activeSection  int  // 0: main menu, 1: content area, 2: management menu
+	showProposals  bool
+	showNewForm    bool
+	showManagement bool
+	
+	width  int
+	height int
+}
+
+type errMsg error
+type proposalsLoadedMsg []propapi.Proposal
+type proposalCreatedMsg *propapi.TextGenerationResponse
+type htmlGeneratedMsg *propapi.HTMLGenerationResponse
+type pdfGeneratedMsg *propapi.PDFGenerationResponse
+type operationCompletedMsg struct {
+	message string
+	nextState state
+}
+
+// addSpaceAfterEmoji agrega un espacio después del primer emoji en un string
+func addSpaceAfterEmoji(s string) string {
+	// Convertir string a runes para manejar correctamente emojis (que pueden ocupar múltiples bytes)
+	runes := []rune(s)
+	if len(runes) == 0 {
+		return s
 	}
 	
-	// Fall back to shared config helper
-	return propapi.GetBaseURL()
+	// Si el primer carácter ya tiene un espacio después, no hacer nada
+	if len(runes) > 1 && runes[1] == ' ' {
+		return s
+	}
+	
+	// Agregar espacio después del primer carácter (emoji)
+	if len(runes) > 1 {
+		return string(runes[0]) + " " + string(runes[1:])
+	}
+	return s
 }
 
-
-
-
-
-
-func downloadSpecificProposal(client *propapi.Client, proposal propapi.Proposal) {
-	// Get download directory
-	homeDir, err := os.UserHomeDir()
+func runPropTUI() {
+	// Create client
+	client, err := createClient()
 	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al obtener directorio home: "+err.Error()))
-		return
+		fmt.Printf("Error creando cliente: %v\n", err)
+		os.Exit(1)
 	}
-	downloadDir := filepath.Join(homeDir, "Downloads")
-
-	// Create download directory if it doesn't exist
-	if err := os.MkdirAll(downloadDir, 0755); err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al crear directorio de descarga: "+err.Error()))
-		return
+	
+	// Initialize model
+	model := initialModel(client)
+	
+	// Run program
+	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	if _, err := p.Run(); err != nil {
+		fmt.Printf("Error ejecutando TUI: %v\n", err)
+		os.Exit(1)
 	}
-
-	fmt.Printf("%s\n", inputs.InfoStyle.Render("Descargando archivos..."))
-
-	// Download MD file (always try since MD is always generated)
-	if err := client.DownloadProposalFile(proposal.ID, "md", filepath.Join(downloadDir, proposal.ID+".md")); err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al descargar MD: "+err.Error()))
-	} else {
-		fmt.Printf("%s\n", inputs.SuccessStyle.Render("✓ MD descargado"))
-	}
-
-    // Download HTML file: intentar aunque el API no reporte URL (404 si no existe)
-		if err := client.DownloadProposalFile(proposal.ID, "html", filepath.Join(downloadDir, proposal.ID+".html")); err != nil {
-        fmt.Printf("%s\n", inputs.InfoStyle.Render("HTML no disponible aún"))
-		} else {
-			fmt.Printf("%s\n", inputs.SuccessStyle.Render("✓ HTML descargado"))
-	}
-
-    // Download PDF file: intentar aunque el API no reporte URL (404 si no existe)
-		if err := client.DownloadProposalFile(proposal.ID, "pdf", filepath.Join(downloadDir, proposal.ID+".pdf")); err != nil {
-        fmt.Printf("%s\n", inputs.InfoStyle.Render("PDF no disponible aún"))
-		} else {
-			fmt.Printf("%s\n", inputs.SuccessStyle.Render("✓ PDF descargado"))
-	}
-
-	fmt.Printf("%s\n", inputs.SuccessStyle.Render("Descarga completada en: " + downloadDir))
-
-	// Open download directory
-	openDirectory(downloadDir)
 }
 
+func initialModel(client *propapi.Client) appModel {
+	// Main menu
+	mainMenuItems := []string{
+		"🆕 Nueva Propuesta",
+		"📁 Propuesta Existente",
+	}
+	
+	// Generation menu
+	genMenuItems := []string{
+		"📝 Solo Texto (MD)",
+		"🌐 Generar HTML",
+		"📄 Generar PDF",
+		"🏠 Volver al Menú Principal",
+	}
+	
+	// PDF mode
+	pdfModeItems := []string{"normal", "dapec", "oscuro"}
+	
+	// Title input - cambiado a textarea multilínea
+	ti := textarea.New()
+	ti.Placeholder = "Ingresa el título"
+	ti.CharLimit = 500
+	ti.SetWidth(100)
+	ti.SetHeight(3)
+	ti.Focus()
+	
+	// Subtitle input - cambiado a textarea multilínea
+	si := textarea.New()
+	si.Placeholder = "Ingresa el subtítulo"
+	si.CharLimit = 500
+	si.SetWidth(100)
+	si.SetHeight(3)
+	
+	// Prompt textarea
+	ta := textarea.New()
+	ta.Placeholder = "Escribe aquí tu prompt..."
+	ta.CharLimit = 5000
+	ta.SetWidth(100)
+	ta.SetHeight(12)
+	ta.Focus()
+	
+	// Regenerate inputs - título y subtítulo multilínea
+	rti := textarea.New()
+	rti.CharLimit = 500
+	rti.SetWidth(100)
+	rti.SetHeight(3)
+	
+	rsi := textarea.New()
+	rsi.CharLimit = 500
+	rsi.SetWidth(100)
+	rsi.SetHeight(3)
+	
+	rta := textarea.New()
+	rta.CharLimit = 5000
+	rta.SetWidth(100)
+	rta.SetHeight(12)
+	
+	// Update inputs - título y subtítulo multilínea
+	uti := textarea.New()
+	uti.CharLimit = 500
+	uti.SetWidth(100)
+	uti.SetHeight(3)
+	
+	usi := textarea.New()
+	usi.CharLimit = 500
+	usi.SetWidth(100)
+	usi.SetHeight(3)
+	
+	// Modify inputs - título y subtítulo multilínea
+	mti := textarea.New()
+	mti.CharLimit = 500
+	mti.SetWidth(100)
+	mti.SetHeight(3)
+	
+	msi := textarea.New()
+	msi.CharLimit = 500
+	msi.SetWidth(100)
+	msi.SetHeight(3)
+	
+	mta := textarea.New()
+	mta.CharLimit = 5000
+	mta.SetWidth(100)
+	mta.SetHeight(12)
+	
+	// Spinner
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
+	
+	// Proposals list - inicializar con altura mínima para 10 items
+	delegate := list.NewDefaultDelegate()
+	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.Foreground(lipgloss.Color("39")).Bold(true)
+	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.Foreground(lipgloss.Color("39"))
+	proposalsList := list.New([]list.Item{}, delegate, 0, 0)
+	proposalsList.Title = "Propuestas"
+	proposalsList.SetShowStatusBar(false)
+	proposalsList.SetFilteringEnabled(true)
+	proposalsList.Styles.Title = titleStyle
+	
+	return appModel{
+		state:            stateUnified,
+		client:           client,
+		mainMenuCursor:   0,
+		mainMenuItems:    mainMenuItems,
+		activeSection:    0,
+		showProposals:    false,
+		showNewForm:      false,
+		showManagement:   false,
+		titleInput:       ti,
+		subtitleInput:    si,
+		promptInput:      ta,
+		formFocus:        0,
+		genMenuCursor:    0,
+		genMenuItems:     genMenuItems,
+		proposalsList:    proposalsList,
+		proposals:        []propapi.Proposal{},
+		mgmtMenuCursor:   0,
+		mgmtMenuItems:    []string{}, // Inicializar vacío, se llenará cuando se seleccione una propuesta
+		regTitleInput:    rti,
+		regSubtitleInput: rsi,
+		regPromptInput:   rta,
+		regFormFocus:     0,
+		updateTitleInput: uti,
+		updateSubtitleInput: usi,
+		updateFormFocus:  0,
+		modTitleInput:    mti,
+		modSubtitleInput: msi,
+		modPromptInput:   mta,
+		modFormFocus:     0,
+		pdfModeCursor:    0,
+		pdfModeItems:     pdfModeItems,
+		loadingSpinner:   s,
+		width:            120,
+		height:           24,
+	}
+}
 
-func openDirectory(path string) {
-	var cmd *exec.Cmd
+func (m appModel) Init() tea.Cmd {
+	return tea.Batch(
+		// titleInput es textarea ahora, Focus() no aplica
+		m.loadingSpinner.Tick,
+	)
+}
 
-	switch {
-	case isCommandAvailable("xdg-open"):
-		cmd = exec.Command("xdg-open", path)
-	case isCommandAvailable("open"):
-		cmd = exec.Command("open", path)
-	case isCommandAvailable("explorer"):
-		cmd = exec.Command("explorer", path)
+func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	var cmds []tea.Cmd
+	
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		// Ajustar ancho de lista con más margen
+		listWidth := msg.Width - 8
+		if listWidth < 100 {
+			listWidth = 100
+		}
+		m.proposalsList.SetWidth(listWidth)
+		// Calcular altura dinámicamente según el espacio disponible
+		// Reservar espacio para: título (2), menú principal (3), separador (1), título contenido (1), instrucciones (2), mensajes (2) = ~11 líneas
+		// Si hay menú de gestión, reservar más espacio
+		headerLines := 11
+		if m.showManagement {
+			headerLines += 15 // espacio para menú de gestión
+		}
+		if m.showNewForm {
+			headerLines += 20 // espacio para formulario
+		}
+		calculatedHeight := msg.Height - headerLines
+		// Altura mínima para mostrar al menos 5 propuestas (10 líneas)
+		minHeight := 10
+		if calculatedHeight < minHeight {
+			calculatedHeight = minHeight
+		}
+		// Altura máxima razonable
+		maxHeight := 30
+		if calculatedHeight > maxHeight {
+			calculatedHeight = maxHeight
+		}
+		m.proposalsList.SetHeight(calculatedHeight)
+		// Ajustar ancho de textareas
+		textareaWidth := msg.Width - 8
+		if textareaWidth < 80 {
+			textareaWidth = 80
+		}
+		if textareaWidth > 100 {
+			textareaWidth = 100
+		}
+		m.titleInput.SetWidth(textareaWidth)
+		m.subtitleInput.SetWidth(textareaWidth)
+		m.promptInput.SetWidth(textareaWidth)
+		m.regTitleInput.SetWidth(textareaWidth)
+		m.regSubtitleInput.SetWidth(textareaWidth)
+		m.regPromptInput.SetWidth(textareaWidth)
+		m.updateTitleInput.SetWidth(textareaWidth)
+		m.updateSubtitleInput.SetWidth(textareaWidth)
+		m.modTitleInput.SetWidth(textareaWidth)
+		m.modSubtitleInput.SetWidth(textareaWidth)
+		m.modPromptInput.SetWidth(textareaWidth)
+		return m, nil
+		
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "q":
+			return m, tea.Quit
+		}
+		
+		// Handle state-specific updates
+		switch m.state {
+		case stateUnified:
+			return (&m).updateUnified(msg)
+		case stateMainMenu:
+			return m.updateMainMenu(msg)
+		case stateNewProposal:
+			return m.updateNewProposal(msg)
+		case stateGenerationMenu:
+			return m.updateGenerationMenu(msg)
+		case stateProposalsList:
+			// Usar puntero para actualizar el modelo correctamente
+			return (&m).updateProposalsList(msg)
+		case stateProposalManagement:
+			// Usar puntero para actualizar el modelo correctamente
+			return (&m).updateProposalManagement(msg)
+		case stateRegenerate:
+			return m.updateRegenerate(msg)
+		case stateUpdateTitleSubtitle:
+			return m.updateUpdateTitleSubtitle(msg)
+		case stateModifyProposal:
+			return m.updateModifyProposal(msg)
+		case statePDFMode:
+			return m.updatePDFMode(msg)
+		case stateLoading:
+			var cmd tea.Cmd
+			m.loadingSpinner, cmd = m.loadingSpinner.Update(msg)
+			return m, cmd
+		}
+		
+	case errMsg:
+		m.state = stateUnified
+		m.message = msg.Error()
+		m.messageType = "error"
+		return m, nil
+		
+	case proposalsLoadedMsg:
+		m.proposals = []propapi.Proposal(msg)
+		m.state = stateUnified
+		m.showProposals = true
+		m.updateProposalsListItems()
+		return m, nil
+		
+	case proposalCreatedMsg:
+		m.state = stateUnified
+		m.showNewForm = false
+		m.showProposals = false
+		m.genRequest = propapi.TextGenerationRequest{}
+		m.message = fmt.Sprintf("Propuesta creada exitosamente! ID: %s", msg.ID)
+		m.messageType = "success"
+		m.activeSection = 0
+		return m, nil
+		
+	case htmlGeneratedMsg:
+		if m.selectedProposal != nil {
+			m.selectedProposal.HTMLURL = msg.HTMLURL
+			m.updateManagementMenu()
+		}
+		m.message = fmt.Sprintf("HTML generado exitosamente: %s", msg.HTMLURL)
+		m.messageType = "success"
+		m.state = stateUnified
+		m.showManagement = true
+		m.activeSection = 2
+		return m, nil
+		
+	case pdfGeneratedMsg:
+		if m.selectedProposal != nil {
+			m.selectedProposal.PDFURL = msg.PDFURL
+			m.updateManagementMenu()
+		}
+		m.message = fmt.Sprintf("PDF generado exitosamente: %s", msg.PDFURL)
+		m.messageType = "success"
+		m.state = stateUnified
+		m.showManagement = true
+		m.activeSection = 2
+		return m, nil
+		
+	case operationCompletedMsg:
+		m.message = msg.message
+		m.messageType = "success"
+		// Si el nextState es stateProposalManagement, mantener en unified
+		if msg.nextState == stateProposalManagement {
+			m.state = stateUnified
+			m.showManagement = true
+			m.activeSection = 2
+		} else if msg.nextState == stateMainMenu {
+			m.state = stateUnified
+			m.activeSection = 0
+		} else {
+			m.state = msg.nextState
+		}
+		return m, nil
+		
+	case htmlPDFRegeneratedMsg:
+		if m.selectedProposal != nil {
+			m.selectedProposal.HTMLURL = msg.htmlURL
+			m.selectedProposal.PDFURL = msg.pdfURL
+			m.updateManagementMenu()
+		}
+		m.message = fmt.Sprintf("HTML y PDF regenerados. HTML: %s, PDF: %s", msg.htmlURL, msg.pdfURL)
+		m.messageType = "success"
+		m.state = stateUnified
+		m.showManagement = true
+		m.activeSection = 2
+		return m, nil
+		
+	case proposalRegeneratedMsg:
+		if m.selectedProposal != nil {
+			m.selectedProposal.Title = msg.title
+			m.selectedProposal.Subtitle = msg.subtitle
+			m.selectedProposal.Prompt = msg.prompt
+			m.selectedProposal.HTMLURL = msg.htmlURL
+			m.selectedProposal.PDFURL = msg.pdfURL
+			m.updateManagementMenu()
+		}
+		m.message = "Propuesta regenerada, HTML y PDF generados exitosamente"
+		m.messageType = "success"
+		m.state = stateUnified
+		m.showManagement = true
+		m.activeSection = 2
+		return m, nil
+		
+	case titleSubtitleUpdatedMsg:
+		if m.selectedProposal != nil {
+			m.selectedProposal.Title = msg.title
+			m.selectedProposal.Subtitle = msg.subtitle
+			m.updateManagementMenu()
+		}
+		m.message = "Título y subtítulo actualizados. Si deseas verlos en HTML/PDF, vuelve a generarlos."
+		m.messageType = "success"
+		m.state = stateUnified
+		m.showManagement = true
+		m.activeSection = 2
+		return m, nil
+		
+	case proposalModifiedMsg:
+		if m.selectedProposal != nil {
+			m.selectedProposal.HTMLURL = msg.htmlURL
+			m.selectedProposal.PDFURL = msg.pdfURL
+			m.updateManagementMenu()
+		}
+		m.message = "Propuesta modificada y documentos generados exitosamente"
+		m.messageType = "success"
+		m.state = stateUnified
+		m.showManagement = true
+		m.activeSection = 2
+		return m, nil
+	}
+	
+	// Handle loading spinner
+	if m.state == stateLoading {
+		m.loadingSpinner, cmd = m.loadingSpinner.Update(msg)
+		cmds = append(cmds, cmd)
+	}
+	
+	return m, tea.Batch(cmds...)
+}
+
+func (m appModel) View() string {
+	switch m.state {
+	case stateUnified:
+		return m.viewUnified()
+	case stateMainMenu:
+		return m.viewMainMenu()
+	case stateNewProposal:
+		return m.viewNewProposal()
+	case stateGenerationMenu:
+		return m.viewGenerationMenu()
+	case stateProposalsList:
+		return m.viewProposalsList()
+	case stateProposalManagement:
+		return m.viewProposalManagement()
+	case stateRegenerate:
+		return m.viewRegenerate()
+	case stateUpdateTitleSubtitle:
+		return m.viewUpdateTitleSubtitle()
+	case stateModifyProposal:
+		return m.viewModifyProposal()
+	case statePDFMode:
+		return m.viewPDFMode()
+	case stateLoading:
+		return m.viewLoading()
 	default:
-		fmt.Printf("%s\n", inputs.InfoStyle.Render("No se pudo abrir el directorio automáticamente"))
+		return "Estado desconocido"
+	}
+}
+
+// Unified view - everything in one screen
+func (m appModel) viewUnified() string {
+	var b strings.Builder
+	
+	// Calcular ancho de separador basado en el ancho de ventana
+	separatorWidth := 60
+	if m.width > 0 {
+		separatorWidth = m.width - 8
+		if separatorWidth < 40 {
+			separatorWidth = 40
+		}
+		if separatorWidth > 80 {
+			separatorWidth = 80
+		}
+	}
+	
+	// 1. Título principal (solo si no hay contenido activo o si estamos en el menú principal)
+	showTitle := m.activeSection == 0 || (!m.showProposals && !m.showNewForm && !m.showManagement)
+	if showTitle {
+		b.WriteString(titleStyle.Render("📋 Gestor de Propuestas"))
+		b.WriteString("\n")
+	}
+	
+	// 2. Menú principal (solo visible cuando activeSection == 0 o cuando no hay contenido activo)
+	showMainMenu := m.activeSection == 0 || (!m.showProposals && !m.showNewForm && !m.showManagement)
+	if showMainMenu {
+		if !showTitle {
+			b.WriteString("\n")
+		}
+		b.WriteString("Selecciona una opción:\n")
+		for i, item := range m.mainMenuItems {
+			cursor := " "
+			if m.activeSection == 0 && m.mainMenuCursor == i {
+				cursor = ">"
+				formattedItem := addSpaceAfterEmoji(item)
+				b.WriteString(selectedStyle.Render(fmt.Sprintf("%s %s", cursor, formattedItem)))
+			} else {
+				formattedItem := addSpaceAfterEmoji(item)
+				b.WriteString(normalStyle.Render(fmt.Sprintf("%s %s", cursor, formattedItem)))
+			}
+			b.WriteString("\n")
+		}
+	}
+	
+	// Separador solo si hay contenido después del menú principal
+	if showMainMenu && (m.showProposals || m.showNewForm || m.showManagement) {
+		b.WriteString("\n")
+		b.WriteString(strings.Repeat("─", separatorWidth))
+		b.WriteString("\n")
+	}
+	
+	// 3. Área de contenido dinámico
+	if m.showNewForm {
+		// Mostrar formulario de nueva propuesta
+		if !showMainMenu {
+			b.WriteString("\n")
+		}
+		if m.activeSection == 1 {
+			b.WriteString(selectedStyle.Render("🆕 Nueva Propuesta"))
+		} else {
+			b.WriteString(normalStyle.Render("🆕 Nueva Propuesta"))
+		}
+		b.WriteString("\n")
+		
+		// Title
+		b.WriteString("Título:\n")
+		if m.activeSection == 1 && m.formFocus == 0 {
+			b.WriteString(selectedStyle.Render(m.titleInput.View()))
+		} else {
+			b.WriteString(m.titleInput.View())
+		}
+		b.WriteString("\n")
+		
+		// Subtitle
+		b.WriteString("Subtítulo:\n")
+		if m.activeSection == 1 && m.formFocus == 1 {
+			b.WriteString(selectedStyle.Render(m.subtitleInput.View()))
+		} else {
+			b.WriteString(m.subtitleInput.View())
+		}
+		b.WriteString("\n")
+		
+		// Prompt
+		b.WriteString("Prompt:\n")
+		if m.activeSection == 1 && m.formFocus == 2 {
+			b.WriteString(selectedStyle.Render(m.promptInput.View()))
+		} else {
+			b.WriteString(m.promptInput.View())
+		}
+		
+	} else if m.showProposals {
+		// Mostrar lista de propuestas
+		if !showMainMenu {
+			b.WriteString("\n")
+		}
+		if m.activeSection == 1 {
+			b.WriteString(selectedStyle.Render("📁 Propuestas Existentes"))
+		} else {
+			b.WriteString(normalStyle.Render("📁 Propuestas Existentes"))
+		}
+		b.WriteString("\n")
+		if len(m.proposals) > 0 {
+			b.WriteString(m.proposalsList.View())
+		} else {
+			b.WriteString(infoStyle.Render("No hay propuestas disponibles"))
+		}
+	} else if !showMainMenu {
+		// Área vacía solo si no hay menú principal
+		b.WriteString("\n")
+		b.WriteString(infoStyle.Render("Selecciona una opción del menú principal"))
+	}
+	
+	// 4. Menú de gestión (si hay propuesta seleccionada)
+	if m.showManagement && m.selectedProposal != nil {
+		if m.showProposals || m.showNewForm || showMainMenu {
+			b.WriteString("\n")
+			b.WriteString(strings.Repeat("─", separatorWidth))
+		}
+		b.WriteString("\n")
+		if m.activeSection == 2 {
+			b.WriteString(selectedStyle.Render(fmt.Sprintf("📋 Gestionar: %s", m.selectedProposal.Title)))
+		} else {
+			b.WriteString(normalStyle.Render(fmt.Sprintf("📋 Gestionar: %s", m.selectedProposal.Title)))
+		}
+		b.WriteString("\n")
+		if len(m.mgmtMenuItems) > 0 {
+			for i, item := range m.mgmtMenuItems {
+				cursor := " "
+				if m.activeSection == 2 && m.mgmtMenuCursor == i {
+					cursor = ">"
+					formattedItem := addSpaceAfterEmoji(item)
+					b.WriteString(selectedStyle.Render(fmt.Sprintf("%s %s", cursor, formattedItem)))
+				} else {
+					formattedItem := addSpaceAfterEmoji(item)
+					b.WriteString(normalStyle.Render(fmt.Sprintf("%s %s", cursor, formattedItem)))
+				}
+				b.WriteString("\n")
+			}
+		} else {
+			b.WriteString(infoStyle.Render("Cargando opciones..."))
+		}
+	}
+	
+	// 5. Instrucciones
+	b.WriteString("\n")
+	b.WriteString(normalStyle.Render("Tab: cambiar sección | ↑↓: navegar | Enter: seleccionar | Esc: limpiar/salir"))
+	
+	// 6. Mensajes
+	if m.message != "" {
+		b.WriteString("\n")
+		if m.messageType == "error" {
+			b.WriteString(errorStyle.Render(m.message))
+		} else if m.messageType == "success" {
+			b.WriteString(successStyle.Render(m.message))
+		} else {
+			b.WriteString(infoStyle.Render(m.message))
+		}
+	}
+	
+	return docStyle.Render(b.String())
+}
+
+func (m *appModel) updateUnified(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "tab":
+			// Cambiar entre secciones
+			maxSection := 0
+			if m.showProposals || m.showNewForm {
+				maxSection = 1
+			}
+			if m.showManagement {
+				maxSection = 2
+			}
+			m.activeSection = (m.activeSection + 1) % (maxSection + 1)
+			// Limpiar mensajes al cambiar de sección
+			m.message = ""
+			return m, nil
+			
+		case "shift+tab":
+			// Cambiar hacia atrás
+			maxSection := 0
+			if m.showProposals || m.showNewForm {
+				maxSection = 1
+			}
+			if m.showManagement {
+				maxSection = 2
+			}
+			m.activeSection--
+			if m.activeSection < 0 {
+				m.activeSection = maxSection
+			}
+			// Limpiar mensajes al cambiar de sección
+			m.message = ""
+			return m, nil
+			
+		case "up", "k":
+			// Navegar dentro de la sección activa
+			switch m.activeSection {
+			case 0: // Main menu
+				if m.mainMenuCursor > 0 {
+					m.mainMenuCursor--
+				}
+				return m, nil
+			case 1: // Content area
+				if m.showProposals {
+					// La lista maneja sus propias teclas
+					var cmd tea.Cmd
+					m.proposalsList, cmd = m.proposalsList.Update(msg)
+					return m, cmd
+				} else if m.showNewForm {
+					// Cambiar entre campos del formulario
+					if m.formFocus > 0 {
+						m.formFocus--
+					}
+					return m, nil
+				}
+			case 2: // Management menu
+				if m.mgmtMenuCursor > 0 {
+					m.mgmtMenuCursor--
+				}
+				return m, nil
+			}
+			
+		case "down", "j":
+			// Navegar dentro de la sección activa
+			switch m.activeSection {
+			case 0: // Main menu
+				if m.mainMenuCursor < len(m.mainMenuItems)-1 {
+					m.mainMenuCursor++
+				}
+				return m, nil
+			case 1: // Content area
+				if m.showProposals {
+					// La lista maneja sus propias teclas
+					var cmd tea.Cmd
+					m.proposalsList, cmd = m.proposalsList.Update(msg)
+					return m, cmd
+				} else if m.showNewForm {
+					// Cambiar entre campos del formulario
+					if m.formFocus < 2 {
+						m.formFocus++
+					}
+					return m, nil
+				}
+			case 2: // Management menu
+				if m.mgmtMenuCursor < len(m.mgmtMenuItems)-1 {
+					m.mgmtMenuCursor++
+				}
+				return m, nil
+			}
+			
+		case "enter":
+			// Acción según sección activa
+			switch m.activeSection {
+			case 0: // Main menu
+				return m.handleMainMenuSelectionInUnified()
+			case 1: // Content area
+				if m.showProposals {
+					return m.handleProposalSelectionInUnified()
+				} else if m.showNewForm {
+					return m.handleNewProposalSubmitInUnified()
+				}
+			case 2: // Management menu
+				return m.handleManagementSelectionInUnified()
+			}
+			
+		case "esc":
+			// Limpiar selecciones o salir
+			if m.showManagement {
+				m.showManagement = false
+				m.selectedProposal = nil
+				// Si hay propuestas o formulario activo, volver a esa sección, sino al menú principal
+				if m.showProposals || m.showNewForm {
+					m.activeSection = 1
+				} else {
+					m.activeSection = 0
+				}
+				m.message = ""
+				return m, nil
+			} else if m.showProposals || m.showNewForm {
+				m.showProposals = false
+				m.showNewForm = false
+				m.activeSection = 0
+				m.message = ""
+				return m, nil
+			}
+			return m, tea.Quit
+		}
+	}
+	
+	// Actualizar componentes activos
+	var cmd tea.Cmd
+	if m.showNewForm && m.activeSection == 1 {
+		// Actualizar textareas del formulario según el focus
+		switch m.formFocus {
+		case 0:
+			m.titleInput, cmd = m.titleInput.Update(msg)
+		case 1:
+			m.subtitleInput, cmd = m.subtitleInput.Update(msg)
+		case 2:
+			m.promptInput, cmd = m.promptInput.Update(msg)
+		}
+	} else if m.showProposals && m.activeSection == 1 {
+		m.proposalsList, cmd = m.proposalsList.Update(msg)
+	}
+	
+	return m, cmd
+}
+
+func (m *appModel) handleMainMenuSelectionInUnified() (tea.Model, tea.Cmd) {
+	switch m.mainMenuItems[m.mainMenuCursor] {
+	case "🆕 Nueva Propuesta":
+		m.showNewForm = true
+		m.showProposals = false
+		m.showManagement = false
+		m.selectedProposal = nil
+		m.activeSection = 1
+		m.formFocus = 0
+		m.message = ""
+		return m, nil
+		
+	case "📁 Propuesta Existente":
+		m.showProposals = true
+		m.showNewForm = false
+		m.showManagement = false
+		m.selectedProposal = nil
+		m.activeSection = 1
+		m.state = stateLoading
+		m.loadingMsg = "Cargando propuestas..."
+		return m, tea.Batch(m.loadingSpinner.Tick, m.loadProposals())
+	}
+	return m, nil
+}
+
+func (m *appModel) handleProposalSelectionInUnified() (tea.Model, tea.Cmd) {
+	if !m.showProposals {
+		return m, nil
+	}
+	selected := m.proposalsList.SelectedItem()
+	if selected != nil {
+		item := selected.(proposalItem)
+		for i := range m.proposals {
+			if m.proposals[i].ID == item.id {
+				m.selectedProposal = &m.proposals[i]
+				m.showManagement = true
+				m.updateManagementMenu()
+				m.activeSection = 2
+				m.message = ""
+				return m, nil
+			}
+		}
+	}
+	return m, nil
+}
+
+func (m *appModel) handleNewProposalSubmitInUnified() (tea.Model, tea.Cmd) {
+	if !m.showNewForm {
+		return m, nil
+	}
+	
+	title := strings.TrimSpace(m.titleInput.Value())
+	subtitle := strings.TrimSpace(m.subtitleInput.Value())
+	prompt := strings.TrimSpace(m.promptInput.Value())
+	
+	if prompt == "" {
+		m.message = "El prompt no puede estar vacío"
+		m.messageType = "error"
+		return m, nil
+	}
+	
+	m.genRequest = propapi.TextGenerationRequest{
+		Title:    title,
+		Subtitle: subtitle,
+		Prompt:   prompt,
+		Model:    "gpt-5-chat-latest",
+	}
+	
+	m.state = stateGenerationMenu
+	m.message = ""
+	return m, nil
+}
+
+func (m *appModel) handleManagementSelectionInUnified() (tea.Model, tea.Cmd) {
+	if m.selectedProposal == nil || len(m.mgmtMenuItems) == 0 {
+		return m, nil
+	}
+	
+	// Reutilizar la lógica existente de updateProposalManagement
+	return m.updateProposalManagement(tea.KeyMsg{Type: tea.KeyEnter})
+}
+
+// Main menu views and updates
+func (m appModel) updateMainMenu(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "up", "k":
+			if m.mainMenuCursor > 0 {
+				m.mainMenuCursor--
+			}
+		case "down", "j":
+			if m.mainMenuCursor < len(m.mainMenuItems)-1 {
+				m.mainMenuCursor++
+			}
+		case "enter":
+			switch m.mainMenuItems[m.mainMenuCursor] {
+			case "🆕 Nueva Propuesta":
+				m.state = stateNewProposal
+				m.formFocus = 0
+				m.message = ""
+				return m, nil
+			case "📁 Propuesta Existente":
+				m.state = stateLoading
+				m.loadingMsg = "Cargando propuestas..."
+				return m, tea.Batch(m.loadingSpinner.Tick, m.loadProposals())
+			}
+		case "esc":
+			return m, tea.Quit
+		}
+	}
+	return m, nil
+}
+
+func (m appModel) viewMainMenu() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("📋 Gestor de Propuestas"))
+	b.WriteString("\n\n")
+	
+	for i, item := range m.mainMenuItems {
+		cursor := " "
+		if m.mainMenuCursor == i {
+			cursor = ">"
+			// Agregar espacio después del emoji
+			formattedItem := addSpaceAfterEmoji(item)
+			b.WriteString(selectedStyle.Render(fmt.Sprintf("%s %s", cursor, formattedItem)))
+		} else {
+			// Agregar espacio después del emoji
+			formattedItem := addSpaceAfterEmoji(item)
+			b.WriteString(normalStyle.Render(fmt.Sprintf("%s %s", cursor, formattedItem)))
+		}
+		b.WriteString("\n")
+	}
+	
+	b.WriteString("\n")
+	b.WriteString(normalStyle.Render("↑↓ para navegar | Enter para seleccionar | q para salir"))
+	
+	if m.message != "" {
+		b.WriteString("\n\n")
+		if m.messageType == "error" {
+			b.WriteString(errorStyle.Render(m.message))
+		} else if m.messageType == "success" {
+			b.WriteString(successStyle.Render(m.message))
+		} else {
+			b.WriteString(infoStyle.Render(m.message))
+		}
+	}
+	
+	return docStyle.Render(b.String())
+}
+
+// New proposal views and updates
+func (m appModel) updateNewProposal(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "tab":
+			m.formFocus = (m.formFocus + 1) % 3
+			switch m.formFocus {
+			case 0:
+				m.titleInput.Focus()
+				m.subtitleInput.Blur()
+				m.promptInput.Blur()
+				return m, nil
+			case 1:
+				m.titleInput.Blur()
+				m.subtitleInput.Focus()
+				m.promptInput.Blur()
+				return m, nil
+			case 2:
+				m.titleInput.Blur()
+				m.subtitleInput.Blur()
+				m.promptInput.Focus()
+				return m, nil
+			}
+		case "enter":
+			if m.formFocus == 2 {
+				// Create proposal
+				title := strings.TrimSpace(m.titleInput.Value())
+				subtitle := strings.TrimSpace(m.subtitleInput.Value())
+				prompt := strings.TrimSpace(m.promptInput.Value())
+				
+				if prompt == "" {
+					m.message = "El prompt no puede estar vacío"
+					m.messageType = "error"
+					return m, nil
+				}
+				
+				m.genRequest = propapi.TextGenerationRequest{
+					Title:    title,
+					Subtitle: subtitle,
+					Prompt:   prompt,
+					Model:    "gpt-5-chat-latest",
+				}
+				
+				m.state = stateGenerationMenu
+				m.message = ""
+				return m, nil
+			}
+		case "esc":
+			m.state = stateMainMenu
+			m.message = ""
+			return m, nil
+		}
+	}
+	
+	// Update focused input
+	switch m.formFocus {
+	case 0:
+		m.titleInput, cmd = m.titleInput.Update(msg)
+	case 1:
+		m.subtitleInput, cmd = m.subtitleInput.Update(msg)
+	case 2:
+		m.promptInput, cmd = m.promptInput.Update(msg)
+	}
+	
+	return m, cmd
+}
+
+func (m appModel) viewNewProposal() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("🆕 Nueva Propuesta"))
+	b.WriteString("\n\n")
+	
+	// Title
+	b.WriteString("Título:")
+	b.WriteString("\n")
+	if m.formFocus == 0 {
+		b.WriteString(selectedStyle.Render(m.titleInput.View()))
+	} else {
+		b.WriteString(m.titleInput.View())
+	}
+	b.WriteString("\n\n")
+	
+	// Subtitle
+	b.WriteString("Subtítulo:")
+	b.WriteString("\n")
+	if m.formFocus == 1 {
+		b.WriteString(selectedStyle.Render(m.subtitleInput.View()))
+	} else {
+		b.WriteString(m.subtitleInput.View())
+	}
+	b.WriteString("\n\n")
+	
+	// Prompt
+	b.WriteString("Prompt:")
+	b.WriteString("\n")
+	if m.formFocus == 2 {
+		b.WriteString(selectedStyle.Render(m.promptInput.View()))
+	} else {
+		b.WriteString(m.promptInput.View())
+	}
+	b.WriteString("\n\n")
+	
+	b.WriteString(normalStyle.Render("Tab para cambiar campo | Enter en prompt para continuar | Esc para volver"))
+	
+	if m.message != "" {
+		b.WriteString("\n\n")
+		b.WriteString(errorStyle.Render(m.message))
+	}
+	
+	return docStyle.Render(b.String())
+}
+
+// Generation menu views and updates
+func (m appModel) updateGenerationMenu(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "up", "k":
+			if m.genMenuCursor > 0 {
+				m.genMenuCursor--
+			}
+		case "down", "j":
+			if m.genMenuCursor < len(m.genMenuItems)-1 {
+				m.genMenuCursor++
+			}
+		case "enter":
+			switch m.genMenuItems[m.genMenuCursor] {
+			case "📝 Solo Texto (MD)":
+				m.state = stateLoading
+				m.loadingMsg = "Creando propuesta y descargando MD..."
+				return m, tea.Batch(m.loadingSpinner.Tick, m.createProposalAndDownloadMD())
+			case "🌐 Generar HTML":
+				m.state = stateLoading
+				m.loadingMsg = "Creando propuesta y generando HTML..."
+				return m, tea.Batch(m.loadingSpinner.Tick, m.createProposalAndGenerateHTML())
+			case "📄 Generar PDF":
+				m.state = stateLoading
+				m.loadingMsg = "Creando propuesta y generando PDF..."
+				return m, tea.Batch(m.loadingSpinner.Tick, m.createProposalAndGeneratePDF())
+			case "🏠 Volver al Menú Principal":
+				m.state = stateUnified
+				m.showNewForm = false
+				m.showProposals = false
+				m.activeSection = 0
+				m.message = ""
+				return m, nil
+			}
+		case "esc":
+			m.state = stateUnified
+			m.showNewForm = false
+			m.showProposals = false
+			m.activeSection = 0
+			m.message = ""
+			return m, nil
+		}
+	}
+	return m, nil
+}
+
+func (m appModel) viewGenerationMenu() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("📄 Generar Documentos"))
+	b.WriteString("\n\n")
+	b.WriteString("¿Qué documento quieres generar?")
+	b.WriteString("\n\n")
+	
+	for i, item := range m.genMenuItems {
+		cursor := " "
+		if m.genMenuCursor == i {
+			cursor = ">"
+			// Agregar espacio después del emoji
+			formattedItem := addSpaceAfterEmoji(item)
+			b.WriteString(selectedStyle.Render(fmt.Sprintf("%s %s", cursor, formattedItem)))
+		} else {
+			// Agregar espacio después del emoji
+			formattedItem := addSpaceAfterEmoji(item)
+			b.WriteString(normalStyle.Render(fmt.Sprintf("%s %s", cursor, formattedItem)))
+		}
+		b.WriteString("\n")
+	}
+	
+	b.WriteString("\n")
+	b.WriteString(normalStyle.Render("↑↓ para navegar | Enter para seleccionar | Esc para volver"))
+	
+	if m.message != "" {
+		b.WriteString("\n\n")
+		if m.messageType == "error" {
+			b.WriteString(errorStyle.Render(m.message))
+		} else if m.messageType == "success" {
+			b.WriteString(successStyle.Render(m.message))
+		} else {
+			b.WriteString(infoStyle.Render(m.message))
+		}
+	}
+	
+	return docStyle.Render(b.String())
+}
+
+// Proposals list views and updates
+func (m *appModel) updateProposalsList(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "enter":
+			selected := m.proposalsList.SelectedItem()
+			if selected != nil {
+				item := selected.(proposalItem)
+				// Find proposal
+				for i := range m.proposals {
+					if m.proposals[i].ID == item.id {
+						m.selectedProposal = &m.proposals[i]
+						m.state = stateProposalManagement
+						// CORRECCIÓN: Asegurar que el menú se actualiza correctamente
+						m.updateManagementMenu()
+						m.message = ""
+						return m, nil
+					}
+				}
+			}
+		case "esc":
+			m.state = stateMainMenu
+			m.message = ""
+			return m, nil
+		}
+	}
+	
+	var cmd tea.Cmd
+	m.proposalsList, cmd = m.proposalsList.Update(msg)
+	return m, cmd
+}
+
+func (m appModel) viewProposalsList() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("📁 Propuestas Existentes"))
+	b.WriteString("\n\n")
+	
+	if len(m.proposals) == 0 {
+		b.WriteString(infoStyle.Render("No hay propuestas disponibles"))
+		b.WriteString("\n\n")
+		b.WriteString(normalStyle.Render("Esc para volver"))
+		return docStyle.Render(b.String())
+	}
+	
+	b.WriteString(m.proposalsList.View())
+	b.WriteString("\n")
+	b.WriteString(normalStyle.Render("↑↓ para navegar | Enter para seleccionar | Esc para volver | / para buscar"))
+	
+	if m.message != "" {
+		b.WriteString("\n\n")
+		if m.messageType == "error" {
+			b.WriteString(errorStyle.Render(m.message))
+		} else {
+			b.WriteString(infoStyle.Render(m.message))
+		}
+	}
+	
+	return docStyle.Render(b.String())
+}
+
+// Proposal management views and updates
+func (m *appModel) updateProposalManagement(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "up", "k":
+			if m.mgmtMenuCursor > 0 {
+				m.mgmtMenuCursor--
+			}
+		case "down", "j":
+			if m.mgmtMenuCursor < len(m.mgmtMenuItems)-1 {
+				m.mgmtMenuCursor++
+			}
+		case "enter":
+			if m.selectedProposal == nil {
+				return m, nil
+			}
+			
+			if len(m.mgmtMenuItems) == 0 {
+				m.updateManagementMenu()
+			}
+			
+			if m.mgmtMenuCursor >= len(m.mgmtMenuItems) {
+				m.mgmtMenuCursor = 0
+			}
+			
+			action := m.mgmtMenuItems[m.mgmtMenuCursor]
+			
+			switch action {
+			case "📝 Ver propuesta (MD)":
+				m.state = stateLoading
+				m.loadingMsg = "Descargando MD..."
+				return m, tea.Batch(m.loadingSpinner.Tick, m.downloadProposalFile("md"))
+			case "🛠️ Regenerar (título/subtítulo/prompt)":
+				m.state = stateRegenerate
+				m.regTitleInput.SetValue(m.selectedProposal.Title)
+				m.regSubtitleInput.SetValue(m.selectedProposal.Subtitle)
+				m.regPromptInput.SetValue(m.selectedProposal.Prompt)
+				m.regFormFocus = 0
+				m.message = ""
+				return m, nil
+			case "✍️ Cambiar solo título/subtítulo":
+				m.state = stateUpdateTitleSubtitle
+				m.updateTitleInput.SetValue(m.selectedProposal.Title)
+				m.updateSubtitleInput.SetValue(m.selectedProposal.Subtitle)
+				m.updateFormFocus = 0
+				m.message = ""
+				return m, nil
+			case "🌐 Ver HTML":
+				m.state = stateLoading
+				m.loadingMsg = "Descargando HTML..."
+				return m, tea.Batch(m.loadingSpinner.Tick, m.downloadProposalFile("html"))
+			case "🌐 Generar HTML":
+				m.state = stateLoading
+				m.loadingMsg = "Generando HTML..."
+				return m, tea.Batch(m.loadingSpinner.Tick, m.generateHTML())
+			case "🔁 Regenerar HTML":
+				m.state = stateLoading
+				m.loadingMsg = "Regenerando HTML..."
+				return m, tea.Batch(m.loadingSpinner.Tick, m.regenerateHTMLAndPDF())
+			case "📄 Ver PDF":
+				m.state = stateLoading
+				m.loadingMsg = "Descargando PDF..."
+				return m, tea.Batch(m.loadingSpinner.Tick, m.downloadProposalFile("pdf"))
+			case "📄 Generar PDF":
+				m.state = statePDFMode
+				m.pdfModeCursor = 0
+				m.message = ""
+				return m, nil
+			case "🔁 Regenerar PDF":
+				m.state = statePDFMode
+				m.pdfModeCursor = 0
+				m.message = ""
+				return m, nil
+			case "✏️ Modificar propuesta":
+				m.state = stateModifyProposal
+				m.modTitleInput.SetValue(m.selectedProposal.Title)
+				m.modSubtitleInput.SetValue(m.selectedProposal.Subtitle)
+				m.modPromptInput.SetValue(m.selectedProposal.Title + " modificada")
+				m.modFormFocus = 0
+				m.message = ""
+				return m, nil
+			case "📥 Descargar archivos":
+				m.state = stateLoading
+				m.loadingMsg = "Descargando todos los archivos..."
+				return m, tea.Batch(m.loadingSpinner.Tick, m.downloadAllFiles())
+			case "🏠 Volver al Menú Principal":
+				m.state = stateUnified
+				m.showManagement = false
+				m.selectedProposal = nil
+				m.activeSection = 0
+				m.message = ""
+				return m, nil
+			}
+		case "esc":
+			m.state = stateUnified
+			m.showManagement = false
+			m.selectedProposal = nil
+			// Si hay propuestas activas, volver a esa sección, sino al menú principal
+			if m.showProposals || m.showNewForm {
+				m.activeSection = 1
+			} else {
+				m.activeSection = 0
+			}
+			m.message = ""
+			return m, nil
+		}
+	}
+	return m, nil
+}
+
+func (m appModel) viewProposalManagement() string {
+	if m.selectedProposal == nil {
+		return "Error: No hay propuesta seleccionada"
+	}
+	
+	// CORRECCIÓN: Si el menú está vacío, actualizarlo
+	if len(m.mgmtMenuItems) == 0 {
+		// No podemos modificar el modelo desde View, pero podemos loguear el error
+		// El problema real está en que updateManagementMenu no se está llamando correctamente
+		// o el modelo no está siendo actualizado por referencia
+	}
+	
+	var b strings.Builder
+	b.WriteString(titleStyle.Render(fmt.Sprintf("📋 Gestionar: %s", m.selectedProposal.Title)))
+	b.WriteString("\n\n")
+	b.WriteString(normalStyle.Render(fmt.Sprintf("ID: %s\nSubtítulo: %s\n", m.selectedProposal.ID, m.selectedProposal.Subtitle)))
+	b.WriteString("\n")
+	b.WriteString("Selecciona una acción:")
+	b.WriteString("\n\n")
+	
+	if len(m.mgmtMenuItems) == 0 {
+		b.WriteString(errorStyle.Render("No hay opciones disponibles. Por favor, presiona Esc para volver."))
+		b.WriteString("\n\n")
+		b.WriteString(normalStyle.Render("Esc para volver"))
+		return docStyle.Render(b.String())
+	}
+	
+	for i, item := range m.mgmtMenuItems {
+		cursor := " "
+		if m.mgmtMenuCursor == i {
+			cursor = ">"
+			// Agregar espacio después del emoji
+			formattedItem := addSpaceAfterEmoji(item)
+			b.WriteString(selectedStyle.Render(fmt.Sprintf("%s %s", cursor, formattedItem)))
+		} else {
+			// Agregar espacio después del emoji
+			formattedItem := addSpaceAfterEmoji(item)
+			b.WriteString(normalStyle.Render(fmt.Sprintf("%s %s", cursor, formattedItem)))
+		}
+		b.WriteString("\n")
+	}
+	
+	b.WriteString("\n")
+	b.WriteString(normalStyle.Render("↑↓ para navegar | Enter para seleccionar | Esc para volver"))
+	
+	if m.message != "" {
+		b.WriteString("\n\n")
+		if m.messageType == "error" {
+			b.WriteString(errorStyle.Render(m.message))
+		} else if m.messageType == "success" {
+			b.WriteString(successStyle.Render(m.message))
+		} else {
+			b.WriteString(infoStyle.Render(m.message))
+		}
+	}
+	
+	return docStyle.Render(b.String())
+}
+
+func (m *appModel) updateManagementMenu() {
+	if m.selectedProposal == nil {
 		return
 	}
+	
+	menuItems := []string{
+		"📝 Ver propuesta (MD)",
+		"🛠️ Regenerar (título/subtítulo/prompt)",
+		"✍️ Cambiar solo título/subtítulo",
+	}
+	
+	// Add HTML options
+	if m.selectedProposal.HTMLURL != "" {
+		menuItems = append(menuItems, "🌐 Ver HTML")
+		menuItems = append(menuItems, "🔁 Regenerar HTML")
+	} else {
+		menuItems = append(menuItems, "🌐 Generar HTML")
+	}
+	
+	// Add PDF options
+	if m.selectedProposal.PDFURL != "" {
+		menuItems = append(menuItems, "📄 Ver PDF")
+		menuItems = append(menuItems, "🔁 Regenerar PDF")
+	} else {
+		menuItems = append(menuItems, "📄 Generar PDF")
+	}
+	
+	menuItems = append(menuItems, "✏️ Modificar propuesta")
+	menuItems = append(menuItems, "📥 Descargar archivos")
+	menuItems = append(menuItems, "🏠 Volver al Menú Principal")
+	
+	m.mgmtMenuItems = menuItems
+	m.mgmtMenuCursor = 0
+}
 
-	// Start the command in background without waiting
-	if err := cmd.Start(); err != nil {
-		fmt.Printf("%s\n", inputs.InfoStyle.Render("No se pudo abrir el directorio automáticamente"))
+// Regenerate form views and updates
+func (m appModel) updateRegenerate(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "tab":
+			m.regFormFocus = (m.regFormFocus + 1) % 3
+			switch m.regFormFocus {
+			case 0:
+				m.regTitleInput.Focus()
+				m.regSubtitleInput.Blur()
+				m.regPromptInput.Blur()
+				return m, nil
+			case 1:
+				m.regTitleInput.Blur()
+				m.regSubtitleInput.Focus()
+				m.regPromptInput.Blur()
+				return m, nil
+			case 2:
+				m.regTitleInput.Blur()
+				m.regSubtitleInput.Blur()
+				m.regPromptInput.Focus()
+				return m, nil
+			}
+		case "enter":
+			if m.regFormFocus == 2 {
+				// Regenerate
+				title := strings.TrimSpace(m.regTitleInput.Value())
+				subtitle := strings.TrimSpace(m.regSubtitleInput.Value())
+				prompt := strings.TrimSpace(m.regPromptInput.Value())
+				
+				if prompt == "" {
+					m.message = "El prompt no puede estar vacío"
+					m.messageType = "error"
+					return m, nil
+				}
+				
+				if m.selectedProposal == nil {
+					return m, nil
+				}
+				
+				m.state = stateLoading
+				m.loadingMsg = "Regenerando propuesta..."
+				return m, tea.Batch(m.loadingSpinner.Tick, m.regenerateProposal(title, subtitle, prompt))
+			}
+		case "esc":
+			m.state = stateUnified
+			m.showManagement = true
+			m.activeSection = 2
+			m.message = ""
+			return m, nil
+		}
+	}
+	
+	// Update focused input
+	switch m.regFormFocus {
+	case 0:
+		m.regTitleInput, cmd = m.regTitleInput.Update(msg)
+	case 1:
+		m.regSubtitleInput, cmd = m.regSubtitleInput.Update(msg)
+	case 2:
+		m.regPromptInput, cmd = m.regPromptInput.Update(msg)
+	}
+	
+	return m, cmd
+}
+
+func (m appModel) viewRegenerate() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("🛠️ Regenerar Propuesta"))
+	b.WriteString("\n\n")
+	b.WriteString("Edita los campos para regenerar el contenido (MD se reemplaza)")
+	b.WriteString("\n\n")
+	
+	b.WriteString("Título:")
+	b.WriteString("\n")
+	if m.regFormFocus == 0 {
+		b.WriteString(selectedStyle.Render(m.regTitleInput.View()))
+	} else {
+		b.WriteString(m.regTitleInput.View())
+	}
+	b.WriteString("\n\n")
+	
+	b.WriteString("Subtítulo:")
+	b.WriteString("\n")
+	if m.regFormFocus == 1 {
+		b.WriteString(selectedStyle.Render(m.regSubtitleInput.View()))
+	} else {
+		b.WriteString(m.regSubtitleInput.View())
+	}
+	b.WriteString("\n\n")
+	
+	b.WriteString("Prompt:")
+	b.WriteString("\n")
+	if m.regFormFocus == 2 {
+		b.WriteString(selectedStyle.Render(m.regPromptInput.View()))
+	} else {
+		b.WriteString(m.regPromptInput.View())
+	}
+	b.WriteString("\n\n")
+	
+	b.WriteString(normalStyle.Render("Tab para cambiar campo | Enter en prompt para regenerar | Esc para volver"))
+	
+	if m.message != "" {
+		b.WriteString("\n\n")
+		b.WriteString(errorStyle.Render(m.message))
+	}
+	
+	return docStyle.Render(b.String())
+}
+
+// Update title/subtitle form views and updates
+func (m appModel) updateUpdateTitleSubtitle(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "tab":
+			m.updateFormFocus = (m.updateFormFocus + 1) % 2
+			switch m.updateFormFocus {
+			case 0:
+				m.updateTitleInput.Focus()
+				m.updateSubtitleInput.Blur()
+				return m, nil
+			case 1:
+				m.updateTitleInput.Blur()
+				m.updateSubtitleInput.Focus()
+				return m, nil
+			}
+		case "enter":
+			if m.updateFormFocus == 1 {
+				// Update
+				title := strings.TrimSpace(m.updateTitleInput.Value())
+				subtitle := strings.TrimSpace(m.updateSubtitleInput.Value())
+				
+				if m.selectedProposal == nil {
+					return m, nil
+				}
+				
+				m.state = stateLoading
+				m.loadingMsg = "Actualizando título y subtítulo..."
+				return m, tea.Batch(m.loadingSpinner.Tick, m.updateTitleSubtitle(title, subtitle))
+			}
+		case "esc":
+			m.state = stateUnified
+			m.showManagement = true
+			m.activeSection = 2
+			m.message = ""
+			return m, nil
+		}
+	}
+	
+	// Update focused input
+	switch m.updateFormFocus {
+	case 0:
+		m.updateTitleInput, cmd = m.updateTitleInput.Update(msg)
+	case 1:
+		m.updateSubtitleInput, cmd = m.updateSubtitleInput.Update(msg)
+	}
+	
+	return m, cmd
+}
+
+func (m appModel) viewUpdateTitleSubtitle() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("✍️ Actualizar Título/Subtítulo"))
+	b.WriteString("\n\n")
+	
+	b.WriteString("Título:")
+	b.WriteString("\n")
+	if m.updateFormFocus == 0 {
+		b.WriteString(selectedStyle.Render(m.updateTitleInput.View()))
+	} else {
+		b.WriteString(m.updateTitleInput.View())
+	}
+	b.WriteString("\n\n")
+	
+	b.WriteString("Subtítulo:")
+	b.WriteString("\n")
+	if m.updateFormFocus == 1 {
+		b.WriteString(selectedStyle.Render(m.updateSubtitleInput.View()))
+	} else {
+		b.WriteString(m.updateSubtitleInput.View())
+	}
+	b.WriteString("\n\n")
+	
+	b.WriteString(normalStyle.Render("Tab para cambiar campo | Enter en subtítulo para actualizar | Esc para volver"))
+	
+	if m.message != "" {
+		b.WriteString("\n\n")
+		b.WriteString(errorStyle.Render(m.message))
+	}
+	
+	return docStyle.Render(b.String())
+}
+
+// Modify proposal form views and updates
+func (m appModel) updateModifyProposal(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "tab":
+			m.modFormFocus = (m.modFormFocus + 1) % 3
+			switch m.modFormFocus {
+			case 0:
+				m.modTitleInput.Focus()
+				m.modSubtitleInput.Blur()
+				m.modPromptInput.Blur()
+				return m, nil
+			case 1:
+				m.modTitleInput.Blur()
+				m.modSubtitleInput.Focus()
+				m.modPromptInput.Blur()
+				return m, nil
+			case 2:
+				m.modTitleInput.Blur()
+				m.modSubtitleInput.Blur()
+				m.modPromptInput.Focus()
+				return m, nil
+			}
+		case "enter":
+			if m.modFormFocus == 2 {
+				// Modify
+				title := strings.TrimSpace(m.modTitleInput.Value())
+				subtitle := strings.TrimSpace(m.modSubtitleInput.Value())
+				prompt := strings.TrimSpace(m.modPromptInput.Value())
+				
+				if prompt == "" {
+					m.message = "El prompt no puede estar vacío"
+					m.messageType = "error"
+					return m, nil
+				}
+				
+				if m.selectedProposal == nil {
+					return m, nil
+				}
+				
+				m.state = stateLoading
+				m.loadingMsg = "Modificando propuesta..."
+				return m, tea.Batch(m.loadingSpinner.Tick, m.modifyProposal(title, subtitle, prompt))
+			}
+		case "esc":
+			m.state = stateUnified
+			m.showManagement = true
+			m.activeSection = 2
+			m.message = ""
+			return m, nil
+		}
+	}
+	
+	// Update focused input
+	switch m.modFormFocus {
+	case 0:
+		m.modTitleInput, cmd = m.modTitleInput.Update(msg)
+	case 1:
+		m.modSubtitleInput, cmd = m.modSubtitleInput.Update(msg)
+	case 2:
+		m.modPromptInput, cmd = m.modPromptInput.Update(msg)
+	}
+	
+	return m, cmd
+}
+
+func (m appModel) viewModifyProposal() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("✏️ Modificar Propuesta"))
+	b.WriteString("\n\n")
+	b.WriteString("Ingresa el nuevo prompt:")
+	b.WriteString("\n\n")
+	
+	b.WriteString("Título:")
+	b.WriteString("\n")
+	if m.modFormFocus == 0 {
+		b.WriteString(selectedStyle.Render(m.modTitleInput.View()))
+	} else {
+		b.WriteString(m.modTitleInput.View())
+	}
+	b.WriteString("\n\n")
+	
+	b.WriteString("Subtítulo:")
+	b.WriteString("\n")
+	if m.modFormFocus == 1 {
+		b.WriteString(selectedStyle.Render(m.modSubtitleInput.View()))
+	} else {
+		b.WriteString(m.modSubtitleInput.View())
+	}
+	b.WriteString("\n\n")
+	
+	b.WriteString("Prompt:")
+	b.WriteString("\n")
+	if m.modFormFocus == 2 {
+		b.WriteString(selectedStyle.Render(m.modPromptInput.View()))
+	} else {
+		b.WriteString(m.modPromptInput.View())
+	}
+	b.WriteString("\n\n")
+	
+	b.WriteString(normalStyle.Render("Tab para cambiar campo | Enter en prompt para modificar | Esc para volver"))
+	
+	if m.message != "" {
+		b.WriteString("\n\n")
+		b.WriteString(errorStyle.Render(m.message))
+	}
+	
+	return docStyle.Render(b.String())
+}
+
+// PDF mode selection views and updates
+func (m appModel) updatePDFMode(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "up", "k":
+			if m.pdfModeCursor > 0 {
+				m.pdfModeCursor--
+			}
+		case "down", "j":
+			if m.pdfModeCursor < len(m.pdfModeItems)-1 {
+				m.pdfModeCursor++
+			}
+		case "enter":
+			if m.selectedProposal == nil {
+				return m, nil
+			}
+			
+			mode := m.pdfModeItems[m.pdfModeCursor]
+			m.state = stateLoading
+			m.loadingMsg = fmt.Sprintf("Generando PDF en modo %s...", mode)
+			return m, tea.Batch(m.loadingSpinner.Tick, m.generatePDF(mode))
+		case "esc":
+			m.state = stateUnified
+			m.showManagement = true
+			m.activeSection = 2
+			m.message = ""
+			return m, nil
+		}
+	}
+	return m, nil
+}
+
+func (m appModel) viewPDFMode() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("Generar PDF"))
+	b.WriteString("\n\n")
+	b.WriteString("Selecciona el modo de impresión del PDF:")
+	b.WriteString("\n\n")
+	
+	for i, item := range m.pdfModeItems {
+		cursor := " "
+		if m.pdfModeCursor == i {
+			cursor = ">"
+			b.WriteString(selectedStyle.Render(fmt.Sprintf("%s %s", cursor, item)))
+		} else {
+			b.WriteString(normalStyle.Render(fmt.Sprintf("%s %s", cursor, item)))
+		}
+		b.WriteString("\n")
+	}
+	
+	b.WriteString("\n")
+	b.WriteString(normalStyle.Render("↑↓ para navegar | Enter para seleccionar | Esc para volver"))
+	
+	if m.message != "" {
+		b.WriteString("\n\n")
+		b.WriteString(errorStyle.Render(m.message))
+	}
+	
+	return docStyle.Render(b.String())
+}
+
+// Loading view
+func (m appModel) viewLoading() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("⏳ Procesando"))
+	b.WriteString("\n\n")
+	b.WriteString(m.loadingSpinner.View())
+	b.WriteString(" ")
+	b.WriteString(m.loadingMsg)
+	b.WriteString("\n\n")
+	b.WriteString(normalStyle.Render("Por favor espera..."))
+	return docStyle.Render(b.String())
+}
+
+// List item for proposals
+type proposalItem struct {
+	id       string
+	title    string
+	subtitle string
+	created  string
+}
+
+func (i proposalItem) FilterValue() string {
+	return i.title + " " + i.subtitle
+}
+
+func (i proposalItem) Title() string {
+	return i.title
+}
+
+func (i proposalItem) Description() string {
+	return fmt.Sprintf("ID: %s | %s | Creada: %s", i.id, i.subtitle, i.created)
+}
+
+func (m *appModel) updateProposalsListItems() {
+	items := []list.Item{}
+	for _, prop := range m.proposals {
+		items = append(items, proposalItem{
+			id:       prop.ID,
+			title:    prop.Title,
+			subtitle: prop.Subtitle,
+			created:  prop.CreatedAt.Format("2006-01-02 15:04"),
+		})
+	}
+	m.proposalsList.SetItems(items)
+}
+
+// Commands for async operations
+func (m appModel) loadProposals() tea.Cmd {
+	return func() tea.Msg {
+		proposals, err := m.client.GetProposals()
+		if err != nil {
+			return errMsg(err)
+		}
+		return proposalsLoadedMsg(proposals)
 	}
 }
 
-func isCommandAvailable(command string) bool {
-	_, err := exec.LookPath(command)
-	return err == nil
-}
-
-// showNotification shows a dunst notification
-func showNotification(title, message string) {
-	if isCommandAvailable("dunstify") {
-		exec.Command("dunstify", "--appname=Propuestas", title, message).Run()
-	} else if isCommandAvailable("notify-send") {
-		exec.Command("notify-send", "--app-name=Propuestas", title, message).Run()
+func (m appModel) createProposalAndDownloadMD() tea.Cmd {
+	return func() tea.Msg {
+		response, err := m.client.CreateProposal(m.genRequest)
+		if err != nil {
+			return errMsg(err)
+		}
+		
+		homeDir, _ := os.UserHomeDir()
+		downloadDir := filepath.Join(homeDir, "Downloads")
+		os.MkdirAll(downloadDir, 0755)
+		mdPath := filepath.Join(downloadDir, response.ID+".md")
+		
+		if err := m.client.DownloadProposalFile(response.ID, "md", mdPath); err != nil {
+			return errMsg(err)
+		}
+		
+		OpenDirectory(downloadDir)
+		
+		return operationCompletedMsg{
+			message: "Propuesta creada y MD descargado en " + downloadDir,
+			nextState: stateMainMenu,
+		}
 	}
 }
 
-func generateHTMLAndPDF(client *propapi.Client, proposalID string) {
-	// Generate HTML
-	fmt.Printf("%s\n", inputs.InfoStyle.Render("Generando HTML..."))
-	showNotification("Generando HTML", "Iniciando generación de HTML...")
-    stop := startYadProgress("Manejando Solicitud", "Conectando con la API...\\nProcesando...")
-	
-	htmlResponse, err := client.GenerateHTML(proposalID)
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al generar HTML: "+err.Error()))
-		showNotification("Error HTML", "Error al generar HTML")
-        stop()
-        return
+func (m appModel) createProposalAndGenerateHTML() tea.Cmd {
+	return func() tea.Msg {
+		response, err := m.client.CreateProposal(m.genRequest)
+		if err != nil {
+			return errMsg(err)
+		}
+		
+		_, err = m.client.GenerateHTML(response.ID)
+		if err != nil {
+			return errMsg(err)
+		}
+		
+		_, err = m.client.GeneratePDF(response.ID, "normal")
+		if err != nil {
+			return errMsg(err)
+		}
+		
+		return operationCompletedMsg{
+			message: "Propuesta creada, HTML y PDF generados exitosamente",
+			nextState: stateMainMenu,
+		}
 	}
-	
-	fmt.Printf("%s\n", inputs.SuccessStyle.Render("✓ HTML generado: " + htmlResponse.HTMLURL))
-	showNotification("HTML Listo", "HTML generado exitosamente")
+}
 
-    // Generate PDF
-	fmt.Printf("%s\n", inputs.InfoStyle.Render("Generando PDF..."))
-	showNotification("Generando PDF", "Iniciando generación de PDF...")
-	
-	pdfResponse, err := client.GeneratePDF(proposalID, "normal")
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al generar PDF: "+err.Error()))
-		showNotification("Error PDF", "Error al generar PDF")
-        stop()
-        return
+func (m appModel) createProposalAndGeneratePDF() tea.Cmd {
+	return func() tea.Msg {
+		response, err := m.client.CreateProposal(m.genRequest)
+		if err != nil {
+			return errMsg(err)
+		}
+		
+		_, err = m.client.GenerateHTML(response.ID)
+		if err != nil {
+			return errMsg(err)
+		}
+		
+		pdfResponse, err := m.client.GeneratePDF(response.ID, "normal")
+		if err != nil {
+			return errMsg(err)
+		}
+		
+		return operationCompletedMsg{
+			message: "Propuesta creada, HTML y PDF generados. PDF: " + pdfResponse.PDFURL,
+			nextState: stateMainMenu,
+		}
 	}
-	
-	fmt.Printf("%s\n", inputs.SuccessStyle.Render("✓ PDF generado: " + pdfResponse.PDFURL))
-	showNotification("PDF Listo", "PDF generado exitosamente")
-    stop()
+}
+
+func (m appModel) downloadProposalFile(fileType string) tea.Cmd {
+	return func() tea.Msg {
+		if m.selectedProposal == nil {
+			return errMsg(fmt.Errorf("no hay propuesta seleccionada"))
+		}
+		
+		homeDir, _ := os.UserHomeDir()
+		downloadDir := filepath.Join(homeDir, "Downloads")
+		os.MkdirAll(downloadDir, 0755)
+		filePath := filepath.Join(downloadDir, m.selectedProposal.ID+"."+fileType)
+		
+		if err := m.client.DownloadProposalFile(m.selectedProposal.ID, fileType, filePath); err != nil {
+			return errMsg(err)
+		}
+		
+		OpenDirectory(downloadDir)
+		
+		return operationCompletedMsg{
+			message: fmt.Sprintf("%s descargado en %s", strings.ToUpper(fileType), downloadDir),
+			nextState: stateProposalManagement,
+		}
+	}
+}
+
+func (m appModel) generateHTML() tea.Cmd {
+	return func() tea.Msg {
+		if m.selectedProposal == nil {
+			return errMsg(fmt.Errorf("no hay propuesta seleccionada"))
+		}
+		
+		response, err := m.client.GenerateHTML(m.selectedProposal.ID)
+		if err != nil {
+			return errMsg(err)
+		}
+		
+		return htmlGeneratedMsg(response)
+	}
+}
+
+type htmlPDFRegeneratedMsg struct {
+	htmlURL string
+	pdfURL  string
+}
+
+func (m appModel) regenerateHTMLAndPDF() tea.Cmd {
+	return func() tea.Msg {
+		if m.selectedProposal == nil {
+			return errMsg(fmt.Errorf("no hay propuesta seleccionada"))
+		}
+		
+		htmlResponse, err := m.client.GenerateHTML(m.selectedProposal.ID)
+		if err != nil {
+			return errMsg(err)
+		}
+		
+		pdfResponse, err := m.client.GeneratePDF(m.selectedProposal.ID, "normal")
+		if err != nil {
+			return errMsg(err)
+		}
+		
+		return htmlPDFRegeneratedMsg{
+			htmlURL: htmlResponse.HTMLURL,
+			pdfURL:  pdfResponse.PDFURL,
+		}
+	}
+}
+
+func (m appModel) generatePDF(mode string) tea.Cmd {
+	return func() tea.Msg {
+		if m.selectedProposal == nil {
+			return errMsg(fmt.Errorf("no hay propuesta seleccionada"))
+		}
+		
+		response, err := m.client.GeneratePDF(m.selectedProposal.ID, mode)
+		if err != nil {
+			return errMsg(err)
+		}
+		
+		return pdfGeneratedMsg(response)
+	}
+}
+
+type proposalRegeneratedMsg struct {
+	title    string
+	subtitle string
+	prompt   string
+	htmlURL  string
+	pdfURL   string
+}
+
+func (m appModel) regenerateProposal(title, subtitle, prompt string) tea.Cmd {
+	return func() tea.Msg {
+		if m.selectedProposal == nil {
+			return errMsg(fmt.Errorf("no hay propuesta seleccionada"))
+		}
+		
+		err := m.client.RegenerateProposal(m.selectedProposal.ID, title, subtitle, prompt)
+		if err != nil {
+			return errMsg(err)
+		}
+		
+		htmlResponse, err := m.client.GenerateHTML(m.selectedProposal.ID)
+		if err != nil {
+			return errMsg(err)
+		}
+		
+		pdfResponse, err := m.client.GeneratePDF(m.selectedProposal.ID, "normal")
+		if err != nil {
+			return errMsg(err)
+		}
+		
+		return proposalRegeneratedMsg{
+			title:    title,
+			subtitle: subtitle,
+			prompt:   prompt,
+			htmlURL:  htmlResponse.HTMLURL,
+			pdfURL:   pdfResponse.PDFURL,
+		}
+	}
+}
+
+type titleSubtitleUpdatedMsg struct {
+	title    string
+	subtitle string
+}
+
+func (m appModel) updateTitleSubtitle(title, subtitle string) tea.Cmd {
+	return func() tea.Msg {
+		if m.selectedProposal == nil {
+			return errMsg(fmt.Errorf("no hay propuesta seleccionada"))
+		}
+		
+		err := m.client.UpdateTitleSubtitle(m.selectedProposal.ID, title, subtitle)
+		if err != nil {
+			return errMsg(err)
+		}
+		
+		return titleSubtitleUpdatedMsg{
+			title:    title,
+			subtitle: subtitle,
+		}
+	}
+}
+
+type proposalModifiedMsg struct {
+	htmlURL string
+	pdfURL  string
+}
+
+func (m appModel) modifyProposal(title, subtitle, prompt string) tea.Cmd {
+	return func() tea.Msg {
+		if m.selectedProposal == nil {
+			return errMsg(fmt.Errorf("no hay propuesta seleccionada"))
+		}
+		
+		_, err := m.client.ModifyProposal(m.selectedProposal.ID, title, subtitle, prompt)
+		if err != nil {
+			return errMsg(err)
+		}
+		
+		htmlResponse, err := m.client.GenerateHTML(m.selectedProposal.ID)
+		if err != nil {
+			return errMsg(err)
+		}
+		
+		pdfResponse, err := m.client.GeneratePDF(m.selectedProposal.ID, "normal")
+		if err != nil {
+			return errMsg(err)
+		}
+		
+		return proposalModifiedMsg{
+			htmlURL: htmlResponse.HTMLURL,
+			pdfURL:  pdfResponse.PDFURL,
+		}
+	}
+}
+
+func (m appModel) downloadAllFiles() tea.Cmd {
+	return func() tea.Msg {
+		if m.selectedProposal == nil {
+			return errMsg(fmt.Errorf("no hay propuesta seleccionada"))
+		}
+		
+		homeDir, _ := os.UserHomeDir()
+		downloadDir := filepath.Join(homeDir, "Downloads")
+		os.MkdirAll(downloadDir, 0755)
+		
+		// Download MD
+		mdPath := filepath.Join(downloadDir, m.selectedProposal.ID+".md")
+		m.client.DownloadProposalFile(m.selectedProposal.ID, "md", mdPath)
+		
+		// Download HTML
+		htmlPath := filepath.Join(downloadDir, m.selectedProposal.ID+".html")
+		m.client.DownloadProposalFile(m.selectedProposal.ID, "html", htmlPath)
+		
+		// Download PDF
+		pdfPath := filepath.Join(downloadDir, m.selectedProposal.ID+".pdf")
+		m.client.DownloadProposalFile(m.selectedProposal.ID, "pdf", pdfPath)
+		
+		OpenDirectory(downloadDir)
+		
+		return operationCompletedMsg{
+			message: fmt.Sprintf("Archivos descargados en %s", downloadDir),
+			nextState: stateProposalManagement,
+		}
+	}
 }
 
 // createClient creates a propapi client with authentication
@@ -235,1912 +2250,27 @@ func createClient() (*propapi.Client, error) {
 	return propapi.NewClient(baseURL, authFunc), nil
 }
 
-// startYadProgress launches a pulsating YAD progress dialog and returns a stop function.
-func startYadProgress(title, text string) func() {
-    cmd := exec.Command(
-        "yad",
-        "--progress",
-        "--title="+title,
-        "--text="+text,
-        "--progress-text=",
-        "--pulsate",
-        "--width=400",
-        "--no-buttons",
-    )
-    // Detach stdio so it doesn't block
-    cmd.Stdout = nil
-    cmd.Stderr = nil
-    _ = cmd.Start()
-    return func() {
-        if cmd.Process != nil {
-            _ = cmd.Process.Kill()
-        }
-    }
-}
-
-// showMainProposalMenu shows the main unified proposal menu
-func showMainProposalMenu() {
-	for {
-		// Show main menu as a list like the action menu
-		cmd := exec.Command("yad",
-			"--list",
-			"--title=📋 Gestor de Propuestas",
-			"--text=Selecciona una opción:",
-			"--column=Opción",
-			"--width=400",
-			"--height=200",
-			"--print-column=1",
-			"--single-click",
-			"--separator=|")
-
-		// Add menu items
-		cmd.Args = append(cmd.Args, "🆕 Nueva Propuesta")
-		cmd.Args = append(cmd.Args, "📁 Propuesta Existente")
-
-		output, err := cmd.Output()
-		if err != nil {
-			fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error ejecutando yad: "+err.Error()))
-			return
-		}
-
-		result := strings.TrimSpace(string(output))
-		result = strings.TrimSuffix(result, "|")
-		if result == "" {
-			return
-		}
-
-		// Handle selected action
-		switch result {
-		case "🆕 Nueva Propuesta":
-			createNewProposalFlow()
-		case "📁 Propuesta Existente":
-			showExistingProposalFlow()
-		}
-	}
-}
-
-// createNewProposalFlow handles the complete flow for creating new proposals
-func createNewProposalFlow() {
-	// Show form to create new proposal
-	cmd := exec.Command("yad",
-		"--form",
-		"--title=🆕 Nueva Propuesta",
-		"--text=Completa los datos de la nueva propuesta:",
-		`--field=Título:TXT`, "",
-		`--field=Subtítulo:TXT`, "",
-		`--field=Prompt:TXT`, "",
-		"--width=600",
-		"--height=400")
-
-	output, err := cmd.Output()
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error ejecutando yad: "+err.Error()))
-		return
-	}
-
-	result := strings.TrimSpace(string(output))
-	if result == "" {
-		return
-	}
-
-	// Parse form result (yad form returns values separated by |)
-	parts := strings.Split(result, "|")
-	if len(parts) < 3 {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Formato de respuesta inválido"))
-		return
-	}
-
-	title := strings.TrimSpace(parts[0])
-	subtitle := strings.TrimSpace(parts[1])
-	prompt := strings.TrimSpace(parts[2])
-
-	if prompt == "" {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("El prompt no puede estar vacío"))
-		return
-	}
-
-	// Create request
-	request := propapi.TextGenerationRequest{
-		Title:    title,
-		Subtitle: subtitle,
-		Prompt:   prompt,
-		Model:    "gpt-5-chat-latest",
-	}
-
-	// Show generation menu
-	showGenerationMenu(request)
-}
-
-// showGenerationMenu shows options for generating documents after creating proposal
-func showGenerationMenu(request propapi.TextGenerationRequest) {
-	for {
-		cmd := exec.Command("yad",
-			"--form",
-			"--title=📄 Generar Documentos",
-			"--text=¿Qué documento quieres generar?",
-			"--field=Acción:CB", "📝 Solo Texto (MD)!🌐 Generar HTML!📄 Generar PDF!🏠 Volver al Menú Principal",
-			"--width=400",
-			"--height=250")
-
-		output, err := cmd.Output()
-		if err != nil {
-			fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error ejecutando yad: "+err.Error()))
-			return
-		}
-
-		result := strings.TrimSpace(string(output))
-		if result == "" {
-			return
-		}
-
-		action := strings.TrimSpace(strings.Split(result, "|")[0])
-		if action == "" {
-			return
-		}
-
-		switch action {
-        case "📝 Solo Texto (MD)":
-            // Create proposal and download MD, open folder
-            client, err := createClient()
-            if err != nil {
-                fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error creando cliente: "+err.Error()))
-                continue
-            }
-            response, err := client.CreateProposal(request)
-            if err != nil {
-                fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error creando propuesta: "+err.Error()))
-                continue
-            }
-            mdPath := getDownloadPath(response.ID + ".md")
-            _ = client.DownloadProposalFile(response.ID, "md", mdPath)
-            homeDir, _ := os.UserHomeDir()
-            openDirectory(filepath.Join(homeDir, "Downloads"))
-        case "🌐 Generar HTML":
-            // Create proposal and generate HTML, then PDF too per request
-            client, err := createClient()
-            if err != nil {
-                fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error creando cliente: "+err.Error()))
-                continue
-            }
-            response, err := client.CreateProposal(request)
-            if err != nil {
-                fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error creando propuesta: "+err.Error()))
-                continue
-            }
-            generateHTMLAndPDF(client, response.ID)
-        case "📄 Generar PDF":
-            // Create proposal and generate HTML+PDF immediately
-            client, err := createClient()
-            if err != nil {
-                fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error creando cliente: "+err.Error()))
-                continue
-            }
-            response, err := client.CreateProposal(request)
-            if err != nil {
-                fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error creando propuesta: "+err.Error()))
-                continue
-            }
-            generateHTMLAndPDF(client, response.ID)
-		case "🏠 Volver al Menú Principal":
-			return
-		}
-	}
-}
-
-// showExistingProposalFlow handles the complete flow for existing proposals
-func showExistingProposalFlow() {
-    // Show loading while fetching proposals
-    stop := startYadProgress("Manejando Solicitud", "Conectando con la API...\\nProcesando...")
-    client, err := createClient()
-    if err != nil {
-        fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error creando cliente: "+err.Error()))
-        return
-    }
-    proposals, err := client.GetProposals()
-    stop()
-    if err != nil {
-        fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error obteniendo propuestas: "+err.Error()))
-		return
-	}
-
-    if len(proposals) == 0 {
-        fmt.Printf("%s\n", inputs.InfoStyle.Render("No hay propuestas disponibles"))
-        return
-    }
-
-    // Show list with all proposals directly
-    cmd := exec.Command("yad", 
-        "--list",
-        "--title=📁 Propuestas Existentes",
-        "--text=Selecciona una propuesta:",
-        "--column=ID",
-        "--column=Título",
-        "--column=Subtítulo", 
-        "--column=Creada",
-        "--width=900",
-        "--height=480",
-        "--search-column=2", // quick search on title
-        "--print-column=1",   // Return only ID
-        "--single-click",
-        "--separator=|")
-
-    // Add proposal items as arguments
-    for _, prop := range proposals {
-        cmd.Args = append(cmd.Args, prop.ID)
-        cmd.Args = append(cmd.Args, prop.Title)
-        cmd.Args = append(cmd.Args, prop.Subtitle)
-        cmd.Args = append(cmd.Args, prop.CreatedAt.Format("2006-01-02 15:04"))
-    }
-
-    output, err := cmd.Output()
-    if err != nil {
-        fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error ejecutando yad: "+err.Error()))
-        return
-    }
-
-    selectedID := strings.TrimSpace(string(output))
-    selectedID = strings.TrimSuffix(selectedID, "|")
-    if selectedID == "" {
-        return
-    }
-
-    // Find selected proposal
-    var selectedProposal *propapi.Proposal
-    for _, prop := range proposals {
-        if prop.ID == selectedID {
-            selectedProposal = &prop
-            break
-        }
-    }
-
-    if selectedProposal == nil {
-        fmt.Printf("%s\n", inputs.ErrorStyle.Render("Propuesta no encontrada"))
-        return
-    }
-
-    // Show proposal management menu (stays in loop until user exits)
-    showProposalManagementLoop(client, *selectedProposal)
-}
-
-// showProposalManagementLoop shows the management menu for a specific proposal in a loop
-func showProposalManagementLoop(client *propapi.Client, proposal propapi.Proposal) {
-	for {
-		// Create menu options based on available documents
-        menuItems := []string{
-            "📝 Ver propuesta (MD)",
-            "🛠️ Regenerar (título/subtítulo/prompt)",
-            "✍️ Cambiar solo título/subtítulo",
-        }
-		
-		// Add conditional buttons based on document availability
-        if proposal.HTMLURL != "" {
-            menuItems = append(menuItems, "🌐 Ver HTML")
-            menuItems = append(menuItems, "🔁 Regenerar HTML")
-		} else {
-			menuItems = append(menuItems, "🌐 Generar HTML")
-		}
-		
-        if proposal.PDFURL != "" {
-            menuItems = append(menuItems, "📄 Ver PDF")
-            menuItems = append(menuItems, "🔁 Regenerar PDF")
-		} else {
-			menuItems = append(menuItems, "📄 Generar PDF")
-		}
-		
-		menuItems = append(menuItems, "✏️ Modificar propuesta")
-		menuItems = append(menuItems, "📥 Descargar archivos")
-		menuItems = append(menuItems, "🏠 Volver al Menú Principal")
-
-		// Show yad menu dialog
-		cmd := exec.Command("yad", 
-			"--list",
-			"--title=📋 Gestionar: "+proposal.Title,
-			"--text=Selecciona una acción:",
-			"--column=Acción",
-			"--width=400",
-			"--height=350",
-			"--print-column=1",
-			"--single-click",
-			"--separator=|")
-
-		// Add menu items
-		cmd.Args = append(cmd.Args, menuItems...)
-
-		output, err := cmd.Output()
-		if err != nil {
-			fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error ejecutando yad: "+err.Error()))
-			return
-		}
-
-        selectedAction := strings.TrimSpace(string(output))
-        // Remove trailing separator if present
-        selectedAction = strings.TrimSuffix(selectedAction, "|")
-		if selectedAction == "" {
-			return
-		}
-
-		// Handle selected action
-		switch selectedAction {
-        case "📝 Ver propuesta (MD)":
-            // Descargar MD y abrir carpeta de descargas
-            mdPath := getDownloadPath(proposal.ID + ".md")
-            if err := client.DownloadProposalFile(proposal.ID, "md", mdPath); err != nil {
-                exec.Command("yad", "--error", "--title=Descarga MD", "--text=MD no disponible aún").Run()
-            } else {
-                exec.Command("yad", "--info", "--title=Descarga MD", "--text=MD descargado en carpeta de Descargas").Run()
-            }
-            // abrir carpeta
-            homeDir, _ := os.UserHomeDir()
-            openDirectory(filepath.Join(homeDir, "Downloads"))
-        case "🌐 Ver HTML":
-            // Descargar HTML y abrir carpeta
-            downloadPath := getDownloadPath(proposal.ID + ".html")
-            if err := client.DownloadProposalFile(proposal.ID, "html", downloadPath); err != nil {
-                exec.Command("yad", "--error", "--title=Descarga HTML", "--text=HTML no disponible aún").Run()
-            } else {
-                exec.Command("yad", "--info", "--title=Descarga HTML", "--text=HTML descargado en carpeta de Descargas").Run()
-            }
-            homeDir, _ := os.UserHomeDir()
-            openDirectory(filepath.Join(homeDir, "Downloads"))
-		case "🌐 Generar HTML":
-			generateHTMLGUI(client, proposal.ID)
-		case "🔁 Regenerar HTML":
-			// Fuerza nueva generación de HTML según API: POST /generate-html con proposal_id y model por defecto
-			generateHTMLGUI(client, proposal.ID)
-			// Después de regenerar HTML, regenerar PDF automáticamente
-			generatePDFGUI(client, proposal.ID)
-		case "🔁 Regenerar PDF":
-			// Volver a generar PDF (llama a generatePDFGUI que invoca POST /generate-pdf)
-			generatePDFGUI(client, proposal.ID)
-        case "📄 Ver PDF":
-            // Descargar PDF y abrir carpeta
-            downloadPath := getDownloadPath(proposal.ID + ".pdf")
-            if err := client.DownloadProposalFile(proposal.ID, "pdf", downloadPath); err != nil {
-                exec.Command("yad", "--error", "--title=Descarga PDF", "--text=PDF no disponible aún").Run()
-            } else {
-                exec.Command("yad", "--info", "--title=Descarga PDF", "--text=PDF descargado en carpeta de Descargas").Run()
-            }
-            homeDir, _ := os.UserHomeDir()
-            openDirectory(filepath.Join(homeDir, "Downloads"))
-		case "📄 Generar PDF":
-			generatePDFGUI(client, proposal.ID)
-		case "✏️ Modificar propuesta":
-			modifyProposalGUI(client, proposal)
-		case "📥 Descargar archivos":
-			downloadSpecificProposal(client, proposal)
-		case "🏠 Volver al Menú Principal":
-			return
-        case "🛠️ Regenerar (título/subtítulo/prompt)":
-            regenerateProposalGUI(client, &proposal)
-        case "✍️ Cambiar solo título/subtítulo":
-            updateTitleSubtitleGUI(client, &proposal)
-		}
-	}
-}
-
-// regenerateProposalGUI: POST /proposal/{id}/regenerate with title/subtitle/prompt
-func regenerateProposalGUI(client *propapi.Client, proposal *propapi.Proposal) {
-    // Form with current values
-    cmd := exec.Command("yad",
-        "--form",
-        "--title=🛠️ Regenerar Propuesta: "+proposal.Title,
-        "--text=Edita los campos para regenerar el contenido (MD se reemplaza)",
-        `--field=Título:TXT`, proposal.Title,
-        `--field=Subtítulo:TXT`, proposal.Subtitle,
-        `--field=Prompt:TXT`, proposal.Prompt,
-        "--width=700",
-        "--height=420")
-
-    output, err := cmd.Output()
-    if err != nil {
-        fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error ejecutando yad: "+err.Error()))
-        return
-    }
-    res := strings.TrimSpace(string(output))
-    if res == "" { return }
-    parts := strings.Split(res, "|")
-    if len(parts) < 3 { exec.Command("yad","--error","--text=Entrada inválida").Run(); return }
-    newTitle := strings.TrimSpace(parts[0])
-    newSubtitle := strings.TrimSpace(parts[1])
-    newPrompt := strings.TrimSpace(parts[2])
-
-    err = client.RegenerateProposal(proposal.ID, newTitle, newSubtitle, newPrompt)
-    if err != nil { 
-        exec.Command("yad","--error","--text=Fallo al regenerar: "+err.Error()).Run(); 
-        return 
-    }
-
-    // Update local proposal state and clear HTML/PDF
-    proposal.Title = newTitle
-    proposal.Subtitle = newSubtitle
-    proposal.Prompt = newPrompt
-    proposal.HTMLURL = ""
-    proposal.PDFURL = ""
-
-    exec.Command("yad","--info","--text=Texto regenerado. Generando HTML y PDF...").Run()
-    generateHTMLAndPDF(client, proposal.ID)
-}
-
-// updateTitleSubtitleGUI: PATCH /proposal/{id}/title-subtitle
-func updateTitleSubtitleGUI(client *propapi.Client, proposal *propapi.Proposal) {
-    cmd := exec.Command("yad",
-        "--form",
-        "--title=✍️ Actualizar Título/Subtítulo: "+proposal.Title,
-        `--field=Título:TXT`, proposal.Title,
-        `--field=Subtítulo:TXT`, proposal.Subtitle,
-        "--width=600",
-        "--height=260")
-    output, err := cmd.Output()
-    if err != nil { fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error ejecutando yad: "+err.Error())); return }
-    res := strings.TrimSpace(string(output))
-    if res == "" { return }
-    parts := strings.Split(res, "|")
-    if len(parts) < 2 { exec.Command("yad","--error","--text=Entrada inválida").Run(); return }
-    newTitle := strings.TrimSpace(parts[0])
-    newSubtitle := strings.TrimSpace(parts[1])
-
-    err = client.UpdateTitleSubtitle(proposal.ID, newTitle, newSubtitle)
-    if err != nil { 
-        exec.Command("yad","--error","--text=Fallo al actualizar: "+err.Error()).Run(); 
-        return 
-    }
-
-    proposal.Title = newTitle
-    proposal.Subtitle = newSubtitle
-    exec.Command("yad","--info","--text=Título/Subtítulo actualizados. Si deseas verlos en HTML/PDF, vuelve a generarlos.").Run()
-}
-
-
-// modifyProposalGUI shows a dialog to modify a proposal
-func modifyProposalGUI(client *propapi.Client, proposal propapi.Proposal) {
-	// Show yad text entry dialog for prompt
-	cmd := exec.Command("yad",
-		"--form",
-		"--title=Modificar Propuesta: "+proposal.Title,
-		"--text=Ingresa el nuevo prompt:",
-		`--field=Título:TXT`, proposal.Title,
-		`--field=Subtítulo:TXT`, proposal.Subtitle,
-		`--field=Prompt:TXT`, proposal.Title+" modificada",
-		"--width=600",
-		"--height=400")
-
-	output, err := cmd.Output()
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error ejecutando yad: "+err.Error()))
-		return
-	}
-
-	result := strings.TrimSpace(string(output))
-	if result == "" {
-		return
-	}
-
-	// Parse form result (yad form returns values separated by |)
-	parts := strings.Split(result, "|")
-	if len(parts) < 3 {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Formato de respuesta inválido"))
-		return
-	}
-
-	title := strings.TrimSpace(parts[0])
-	subtitle := strings.TrimSpace(parts[1])
-	prompt := strings.TrimSpace(parts[2])
-
-	if prompt == "" {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("El prompt no puede estar vacío"))
-		return
-	}
-
-	// Send modification request
-	fmt.Printf("%s\n", inputs.InfoStyle.Render("Modificando propuesta..."))
-
-	response, err := client.ModifyProposal(proposal.ID, title, subtitle, prompt)
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al modificar propuesta: "+err.Error()))
-		return
-	}
-
-	fmt.Printf("%s\n", inputs.SuccessStyle.Render("¡Propuesta modificada exitosamente!"))
-	fmt.Printf("ID: %s\n", response.ID)
-
-// Generar HTML y PDF automáticamente tras modificar
-generateHTMLAndPDF(client, proposal.ID)
-
-// Show success dialog
-exec.Command("yad", "--info", "--title=Éxito", "--text=Propuesta modificada y documentos generados").Run()
-}
-
-// showProposalContent shows the proposal content in a yad dialog
-func showProposalContent(client *propapi.Client, proposal propapi.Proposal) {
-	// Download MD content
-	mdPath := filepath.Join(os.TempDir(), proposal.ID+".md")
-	if err := client.DownloadProposalFile(proposal.ID, "md", mdPath); err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error descargando contenido: "+err.Error()))
-		return
-	}
-	defer os.Remove(mdPath)
-
-	// Read content
-	content, err := os.ReadFile(mdPath)
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error leyendo contenido: "+err.Error()))
-		return
-	}
-
-	// Create temporary file with content
-	tempFile, err := os.CreateTemp("", "proposal_content_*.md")
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error creando archivo temporal: "+err.Error()))
-		return
-	}
-	defer os.Remove(tempFile.Name())
-
-	tempFile.Write(content)
-	tempFile.Close()
-
-	// Show content in yad text dialog with buttons
-	cmd := exec.Command("yad",
-		"--text-info",
-		"--title=Propuesta: "+proposal.Title,
-		"--filename="+tempFile.Name(),
-		"--width=800",
-		"--height=600",
-		"--button=Generar HTML:1",
-		"--button=Generar PDF:2",
-		"--button=Cerrar:0")
-
-	_, err = cmd.Output()
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error ejecutando yad: "+err.Error()))
-		return
-	}
-
-	exitCode := cmd.ProcessState.ExitCode()
-	switch exitCode {
-	case 1: // Generate HTML
-		generateHTMLGUI(client, proposal.ID)
-	case 2: // Generate PDF
-		generatePDFGUI(client, proposal.ID)
-	}
-}
-
-// generateHTMLGUI generates HTML and shows success message
-func generateHTMLGUI(client *propapi.Client, proposalID string) {
-	fmt.Printf("%s\n", inputs.InfoStyle.Render("Generando HTML..."))
-	showNotification("Generando HTML", "Iniciando generación de HTML...")
-	stop := startYadProgress("Manejando Solicitud", "Conectando con la API...\\nProcesando...")
-
-	_, err := client.GenerateHTML(proposalID)
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al generar HTML: "+err.Error()))
-		showNotification("Error HTML", "Error al generar HTML")
-		stop()
-		return
-	}
-
-	fmt.Printf("%s\n", inputs.SuccessStyle.Render("✓ HTML generado exitosamente"))
-	showNotification("HTML Listo", "HTML generado exitosamente")
-
-	// Download HTML file
-	client.DownloadProposalFile(proposalID, "html", getDownloadPath(proposalID+".html"))
-
-	// Show success dialog
-	exec.Command("yad", "--info", "--title=Éxito", "--text=HTML generado y descargado exitosamente").Run()
-	stop()
-}
-
-// generatePDFGUI generates PDF and opens it
-func generatePDFGUI(client *propapi.Client, proposalID string) {
-	// Show dialog to select PDF mode
-	cmd := exec.Command("yad",
-		"--form",
-		"--title=Generar PDF",
-		"--text=Selecciona el modo de impresión del PDF:",
-		"--field=Modo:CB", "normal!dapec!oscuro",
-		"--width=400",
-		"--height=200")
-
-	output, err := cmd.Output()
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error ejecutando yad: "+err.Error()))
-		return
-	}
-
-	result := strings.TrimSpace(string(output))
-	if result == "" {
-		return
-	}
-
-	// Parse mode selection
-	mode := strings.TrimSpace(strings.Split(result, "|")[0])
-	if mode == "" {
-		mode = "normal"
-	}
-
-    fmt.Printf("%s\n", inputs.InfoStyle.Render("Generando PDF en modo: "+mode+"..."))
-    showNotification("Generando PDF", "Iniciando generación de PDF en modo "+mode+"...")
-    stop := startYadProgress("Manejando Solicitud", "Generando PDF...")
-
-	pdfResponse, err := client.GeneratePDF(proposalID, mode)
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al generar PDF: "+err.Error()))
-		showNotification("Error PDF", "Error al generar PDF")
-		stop()
-		return
-	}
-
-	fmt.Printf("%s\n", inputs.SuccessStyle.Render("✓ PDF generado: " + pdfResponse.PDFURL))
-	showNotification("PDF Listo", "PDF generado exitosamente")
-
-	// Download PDF file
-	filepath := getDownloadPath(proposalID + ".pdf")
-	if err := client.DownloadProposalFile(proposalID, "pdf", filepath); err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al descargar PDF: "+err.Error()))
-		showNotification("Error PDF", "Error al descargar PDF")
-		return
-	}
-
-	// Open PDF file
-    openFile(filepath)
-    stop()
-}
-
-// createNewProposalGUI creates a new proposal using GUI
-func createNewProposalGUI() {
-	// Show yad form dialog for new proposal
-
-
-	cmd := exec.Command("yad",
-    "--form",
-    "--title=Nueva Propuesta",
-    "--text=Ingresa los datos de la nueva propuesta:",
-    `--field=Título:TXT`, `Propuesta de Servicios`,
-    "--field=Subtítulo:TXT",
-    "--field=Prompt:TXT",
-    "--width=600",
-    "--height=400")
-
-	output, err := cmd.Output()
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error ejecutando yad: "+err.Error()))
-		return
-	}
-
-	result := strings.TrimSpace(string(output))
-	if result == "" {
-		return
-	}
-
-	// Parse form result
-	parts := strings.Split(result, "|")
-	if len(parts) < 3 {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Formato de respuesta inválido"))
-		return
-	}
-
-	title := strings.TrimSpace(parts[0])
-	subtitle := strings.TrimSpace(parts[1])
-	prompt := strings.TrimSpace(parts[2])
-
-	if prompt == "" || prompt == "Escribe aquí tu prompt..." {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("El prompt no puede estar vacío"))
-		return
-	}
-
-	// Create request
-	request := propapi.TextGenerationRequest{
-		Title:    title,
-		Subtitle: subtitle,
-		Prompt:   prompt,
-		Model:    "gpt-5-chat-latest",
-	}
-
-	// Send request
-	fmt.Printf("%s\n", inputs.InfoStyle.Render("Creando propuesta..."))
-	stop := startYadProgress("Manejando Solicitud", "Conectando con la API...\\nProcesando...")
-
-	// Create client
-	client, err := createClient()
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error creando cliente: "+err.Error()))
-		stop()
-		return
-	}
-
-	response, err := client.CreateProposal(request)
-
-	fmt.Printf("%s\n", inputs.SuccessStyle.Render("¡Propuesta creada exitosamente!"))
-	fmt.Printf("ID: %s\n", response.ID)
-
-	// Download MD file
-	filepath := getDownloadPath(response.ID + ".md")
-	if err := client.DownloadProposalFile(response.ID, "md", filepath); err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error al descargar MD: "+err.Error()))
-		return
-	}
-
-	// Show success dialog with options
-	cmd = exec.Command("yad",
-		"--question",
-		"--title=Propuesta Creada",
-		"--text=Propuesta creada exitosamente.\n¿Qué deseas hacer?",
-		"--button=Ver Propuesta:1",
-		"--button=Generar HTML:2",
-		"--button=Generar PDF:3",
-		"--button=Cerrar:0")
-
-	cmd.Run()
-	exitCode := cmd.ProcessState.ExitCode()
-
-	switch exitCode {
-	case 1: // View proposal
-		// Create a temporary proposal object for viewing
-		tempProposal := propapi.Proposal{
-			ID:        response.ID,
-			Title:     title,
-			Subtitle:  subtitle,
-			CreatedAt: response.CreatedAt,
-		}
-		showProposalContent(client, tempProposal)
-	case 2: // Generate HTML
-		generateHTMLGUI(client, response.ID)
-	case 3: // Generate PDF
-		generatePDFGUI(client, response.ID)
-	}
-}
-
-// Helper functions
-func getDownloadPath(filename string) string {
-	homeDir, _ := os.UserHomeDir()
-	downloadDir := filepath.Join(homeDir, "Downloads")
-	os.MkdirAll(downloadDir, 0755)
-	return filepath.Join(downloadDir, filename)
-}
-
-func openFile(filepath string) {
+// OpenDirectory opens a directory in the file manager
+func OpenDirectory(path string) {
 	var cmd *exec.Cmd
+
 	switch {
 	case isCommandAvailable("xdg-open"):
-		cmd = exec.Command("xdg-open", filepath)
+		cmd = exec.Command("xdg-open", path)
 	case isCommandAvailable("open"):
-		cmd = exec.Command("open", filepath)
+		cmd = exec.Command("open", path)
 	case isCommandAvailable("explorer"):
-		cmd = exec.Command("explorer", filepath)
+		cmd = exec.Command("explorer", path)
 	default:
-		fmt.Printf("%s\n", inputs.InfoStyle.Render("No se pudo abrir el archivo automáticamente"))
 		return
 	}
 
-	if err := cmd.Start(); err != nil {
-		fmt.Printf("%s\n", inputs.InfoStyle.Render("No se pudo abrir el archivo automáticamente"))
-	}
+	// Start the command in background without waiting
+	_ = cmd.Start()
 }
 
-
-// installDesktopApp creates a .desktop file for the application
-func installDesktopApp() {
-	// Get current executable path
-	execPath, err := os.Executable()
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error obteniendo ruta del ejecutable: "+err.Error()))
-		return
-	}
-
-	// Get user home directory
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error obteniendo directorio home: "+err.Error()))
-		return
-	}
-
-	// Create .desktop file content
-	desktopContent := fmt.Sprintf(`[Desktop Entry]
-Version=1.0
-Type=Application
-Name=📋 Gestor de Propuestas
-Comment=Gestiona propuestas comerciales con interfaz gráfica
-Exec=%s prop
-Icon=applications-office
-Terminal=false
-Categories=Office;Documentation;
-Keywords=propuestas;documentos;pdf;html;
-StartupNotify=true
-`, execPath)
-
-	// Create applications directory if it doesn't exist
-	applicationsDir := filepath.Join(homeDir, ".local", "share", "applications")
-	if err := os.MkdirAll(applicationsDir, 0755); err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error creando directorio de aplicaciones: "+err.Error()))
-		return
-	}
-
-	// Write .desktop file
-	desktopPath := filepath.Join(applicationsDir, "propuestas.desktop")
-	if err := os.WriteFile(desktopPath, []byte(desktopContent), 0755); err != nil {
-		fmt.Printf("%s\n", inputs.ErrorStyle.Render("Error escribiendo archivo .desktop: "+err.Error()))
-		return
-	}
-
-	fmt.Printf("%s\n", inputs.SuccessStyle.Render("✅ Aplicación instalada exitosamente!"))
-	fmt.Printf("%s\n", inputs.InfoStyle.Render("📁 Archivo creado en: "+desktopPath))
-	fmt.Printf("%s\n", inputs.InfoStyle.Render("🔍 Busca 'Propuestas' en el menú de aplicaciones"))
-	fmt.Printf("%s\n", inputs.InfoStyle.Render("💡 También puedes ejecutar: "+execPath+" prop"))
+// isCommandAvailable checks if a command is available in PATH
+func isCommandAvailable(command string) bool {
+	_, err := exec.LookPath(command)
+	return err == nil
 }
-
-// ==============================================
-// FUNCIONES FYNE GUI
-// ==============================================
-
-// showMainProposalMenuFyne shows the main proposal menu using Fyne
-func showMainProposalMenuFyne() {
-	myApp := app.NewWithID("orgm.propuestas")
-
-	myWindow := myApp.NewWindow("Gestor de Propuestas")
-	myWindow.Resize(fyne.NewSize(1400, 900))
-	myWindow.CenterOnScreen()
-
-	// Create main interface content
-	content := createMainInterfaceContent(myApp, myWindow)
-	myWindow.SetContent(content)
-
-	myWindow.ShowAndRun()
-}
-
-// ProposalManager holds the state for the proposal manager
-type ProposalManager struct {
-	proposals           []propapi.Proposal
-	filteredProposals   []propapi.Proposal
-	selectedProposal    *propapi.Proposal
-	proposalsList       *widget.List
-	selectedLabel       *widget.Label
-	searchEntry         *widget.Entry
-	client              *propapi.Client
-	window              fyne.Window
-	app                 fyne.App
-}
-
-// Global variable to store the current proposal manager
-var currentProposalManager *ProposalManager
-
-// createMainInterfaceContent creates the unified main interface
-func createMainInterfaceContent(app fyne.App, window fyne.Window) *fyne.Container {
-	// Title
-	title := widget.NewLabel("Gestor de Propuestas")
-	title.TextStyle = fyne.TextStyle{Bold: true}
-	title.Alignment = fyne.TextAlignCenter
-
-	// Search/filter bar
-	searchEntry := widget.NewEntry()
-	searchEntry.SetPlaceHolder("Buscar por título o subtítulo...")
-
-	// Proposals list
-	proposalsList := widget.NewList(
-		func() int {
-			if currentProposalManager != nil {
-				return len(currentProposalManager.filteredProposals)
-			}
-			return 0
-		},
-		func() fyne.CanvasObject {
-			return container.NewHBox(
-				widget.NewLabel("ID"),
-				widget.NewLabel("Título"),
-				widget.NewLabel("Subtítulo"),
-				widget.NewLabel("Creada"),
-			)
-		},
-		func(id widget.ListItemID, obj fyne.CanvasObject) {
-			if currentProposalManager != nil && id < len(currentProposalManager.filteredProposals) {
-				proposal := currentProposalManager.filteredProposals[id]
-				container := obj.(*fyne.Container)
-				container.Objects[0].(*widget.Label).SetText(proposal.ID)
-				container.Objects[1].(*widget.Label).SetText(proposal.Title)
-				container.Objects[2].(*widget.Label).SetText(proposal.Subtitle)
-				container.Objects[3].(*widget.Label).SetText(proposal.CreatedAt.Format("2006-01-02 15:04"))
-			}
-		},
-	)
-
-	proposalsList.Resize(fyne.NewSize(200, 500))
-
-	// List selection handler
-	proposalsList.OnSelected = func(id widget.ListItemID) {
-		if currentProposalManager != nil && id < len(currentProposalManager.filteredProposals) {
-			proposal := currentProposalManager.filteredProposals[id]
-			currentProposalManager.selectedProposal = &proposal
-			currentProposalManager.selectedLabel.SetText(fmt.Sprintf("Seleccionada: %s\n%s", proposal.Title, proposal.Subtitle))
-		}
-	}
-
-	// Selected proposal info
-	selectedProposalLabel := widget.NewLabel("Ninguna propuesta seleccionada")
-	selectedProposalLabel.Alignment = fyne.TextAlignCenter
-
-	// Create client
-	client, err := createClient()
-	if err != nil {
-		// Show error dialog
-		dialog.ShowError(fmt.Errorf("Error creando cliente: %v", err), window)
-		return container.NewVBox(widget.NewLabel("Error: No se pudo conectar con la API"))
-	}
-
-	// Create proposal manager
-	manager := &ProposalManager{
-		proposals:         []propapi.Proposal{},
-		filteredProposals: []propapi.Proposal{},
-		selectedProposal:  nil,
-		proposalsList:     proposalsList,
-		selectedLabel:     selectedProposalLabel,
-		searchEntry:       searchEntry,
-		client:            client,
-		window:            window,
-		app:               app,
-	}
-
-	// Store manager in global variable for list callbacks
-	currentProposalManager = manager
-
-	// Action buttons
-	buttonsContainer := manager.createActionButtons()
-
-	// Layout - New proposal button first, then list, then buttons
-	// New proposal button at the top
-	newProposalBtn := widget.NewButton("🆕 Nueva Propuesta", func() {
-		createNewProposalFlowFyne(app, window)
-	})
-	newProposalBtn.Resize(fyne.NewSize(200, 40))
-
-	// List panel
-	listPanel := container.NewVBox(
-		widget.NewLabel("Propuestas Existentes:"),
-		searchEntry,
-		proposalsList,
-	)
-
-	listPanel.Resize(fyne.NewSize(200, 500))
-
-
-	// Buttons panel - 2 rows of 5 buttons
-	buttonsPanel := container.NewVBox(
-		selectedProposalLabel,
-		widget.NewSeparator(),
-		buttonsContainer,
-	)
-
-	// Vertical split layout
-	split := container.NewVSplit(listPanel, buttonsPanel)
-	split.Offset = 0.7 // 70% for list, 30% for buttons
-
-	content := container.NewVBox(
-		title,
-		widget.NewSeparator(),
-		container.NewCenter(newProposalBtn),
-		widget.NewSeparator(),
-		split,
-	)
-
-	// Load proposals data
-	manager.loadProposalsData()
-
-	return container.NewPadded(content)
-}
-
-// createActionButtons creates all action buttons in 2 rows of 5
-func (pm *ProposalManager) createActionButtons() *fyne.Container {
-	// Action buttons
-	viewMDBtn := widget.NewButton("📝 Ver MD", func() {
-		if pm.selectedProposal == nil {
-			dialog.ShowInformation("Seleccionar Propuesta", "Por favor selecciona una propuesta primero", pm.window)
-			return
-		}
-		mdPath := getDownloadPath(pm.selectedProposal.ID + ".md")
-		if err := pm.client.DownloadProposalFile(pm.selectedProposal.ID, "md", mdPath); err != nil {
-			dialog.ShowError(fmt.Errorf("MD no disponible aún"), pm.window)
-		} else {
-			dialog.ShowInformation("Descarga MD", "MD descargado en carpeta de Descargas", pm.window)
-		}
-		homeDir, _ := os.UserHomeDir()
-		openDirectory(filepath.Join(homeDir, "Downloads"))
-	})
-
-	regenerateBtn := widget.NewButton("🛠️ Regenerar", func() {
-		if pm.selectedProposal == nil {
-			dialog.ShowInformation("Seleccionar Propuesta", "Por favor selecciona una propuesta primero", pm.window)
-			return
-		}
-		regenerateProposalFyne(pm.app, pm.window, pm.client, pm.selectedProposal)
-	})
-
-	updateTitleBtn := widget.NewButton("✍️ Actualizar Título", func() {
-		if pm.selectedProposal == nil {
-			dialog.ShowInformation("Seleccionar Propuesta", "Por favor selecciona una propuesta primero", pm.window)
-			return
-		}
-		updateTitleSubtitleFyne(pm.app, pm.window, pm.client, pm.selectedProposal)
-	})
-
-	viewHTMLBtn := widget.NewButton("🌐 Ver HTML", func() {
-		if pm.selectedProposal == nil {
-			dialog.ShowInformation("Seleccionar Propuesta", "Por favor selecciona una propuesta primero", pm.window)
-			return
-		}
-		downloadPath := getDownloadPath(pm.selectedProposal.ID + ".html")
-		if err := pm.client.DownloadProposalFile(pm.selectedProposal.ID, "html", downloadPath); err != nil {
-			dialog.ShowError(fmt.Errorf("HTML no disponible aún"), pm.window)
-		} else {
-			dialog.ShowInformation("Descarga HTML", "HTML descargado en carpeta de Descargas", pm.window)
-		}
-		homeDir, _ := os.UserHomeDir()
-		openDirectory(filepath.Join(homeDir, "Downloads"))
-	})
-
-	generateHTMLBtn := widget.NewButton("🌐 Generar HTML", func() {
-		if pm.selectedProposal == nil {
-			dialog.ShowInformation("Seleccionar Propuesta", "Por favor selecciona una propuesta primero", pm.window)
-			return
-		}
-		generateHTMLFyne(pm.app, pm.window, pm.client, pm.selectedProposal.ID)
-	})
-
-	viewPDFBtn := widget.NewButton("📄 Ver PDF", func() {
-		if pm.selectedProposal == nil {
-			dialog.ShowInformation("Seleccionar Propuesta", "Por favor selecciona una propuesta primero", pm.window)
-			return
-		}
-		downloadPath := getDownloadPath(pm.selectedProposal.ID + ".pdf")
-		if err := pm.client.DownloadProposalFile(pm.selectedProposal.ID, "pdf", downloadPath); err != nil {
-			dialog.ShowError(fmt.Errorf("PDF no disponible aún"), pm.window)
-		} else {
-			dialog.ShowInformation("Descarga PDF", "PDF descargado en carpeta de Descargas", pm.window)
-		}
-		homeDir, _ := os.UserHomeDir()
-		openDirectory(filepath.Join(homeDir, "Downloads"))
-	})
-
-	generatePDFBtn := widget.NewButton("📄 Generar PDF", func() {
-		if pm.selectedProposal == nil {
-			dialog.ShowInformation("Seleccionar Propuesta", "Por favor selecciona una propuesta primero", pm.window)
-			return
-		}
-		generatePDFFyne(pm.app, pm.window, pm.client, pm.selectedProposal.ID)
-	})
-
-	modifyBtn := widget.NewButton("✏️ Modificar", func() {
-		if pm.selectedProposal == nil {
-			dialog.ShowInformation("Seleccionar Propuesta", "Por favor selecciona una propuesta primero", pm.window)
-			return
-		}
-		modifyProposalFyne(pm.app, pm.window, pm.client, *pm.selectedProposal)
-	})
-
-	downloadAllBtn := widget.NewButton("📥 Descargar Todo", func() {
-		if pm.selectedProposal == nil {
-			dialog.ShowInformation("Seleccionar Propuesta", "Por favor selecciona una propuesta primero", pm.window)
-			return
-		}
-		downloadSpecificProposal(pm.client, *pm.selectedProposal)
-		dialog.ShowInformation("Descarga", "Archivos descargados en carpeta de Descargas", pm.window)
-	})
-
-	refreshBtn := widget.NewButton("🔄 Actualizar Lista", func() {
-		pm.loadProposalsData()
-	})
-
-	// First row of 5 buttons
-	row1 := container.NewHBox(
-		viewMDBtn,
-		regenerateBtn,
-		updateTitleBtn,
-		viewHTMLBtn,
-		generateHTMLBtn,
-	)
-
-	// Second row of 5 buttons
-	row2 := container.NewHBox(
-		viewPDFBtn,
-		generatePDFBtn,
-		modifyBtn,
-		downloadAllBtn,
-		refreshBtn,
-	)
-
-	return container.NewVBox(
-		widget.NewLabel("Acciones con propuesta seleccionada:"),
-		row1,
-		row2,
-	)
-}
-
-// loadProposalsData loads proposals and sets up the list
-func (pm *ProposalManager) loadProposalsData() {
-	// Show loading
-	pm.selectedLabel.SetText("Cargando propuestas...")
-
-	go func() {
-		proposals, err := pm.client.GetProposals()
-		if err != nil {
-			pm.selectedLabel.SetText("Error cargando propuestas: " + err.Error())
-			return
-		}
-
-		pm.proposals = proposals
-		pm.filteredProposals = proposals
-
-		if len(proposals) == 0 {
-			pm.selectedLabel.SetText("No hay propuestas disponibles")
-			pm.proposalsList.Refresh()
-			return
-		}
-
-		// Debug: Log the number of proposals
-		fmt.Printf("DEBUG: Cargadas %d propuestas\n", len(proposals))
-		for i, prop := range proposals {
-			fmt.Printf("DEBUG: Propuesta %d: ID=%s, Title=%s\n", i, prop.ID, prop.Title)
-		}
-
-		// Set up search filter
-		pm.searchEntry.OnChanged = func(text string) {
-			pm.filteredProposals = pm.filterProposals(text)
-			pm.proposalsList.Refresh()
-		}
-
-		pm.proposalsList.Refresh()
-		pm.selectedLabel.SetText(fmt.Sprintf("Cargadas %d propuestas. Selecciona una para ver acciones.", len(proposals)))
-	}()
-}
-
-// filterProposals filters proposals based on search text
-func (pm *ProposalManager) filterProposals(searchText string) []propapi.Proposal {
-	if searchText == "" {
-		return pm.proposals
-	}
-	
-	searchText = strings.ToLower(searchText)
-	var filtered []propapi.Proposal
-	
-	for _, proposal := range pm.proposals {
-		if strings.Contains(strings.ToLower(proposal.Title), searchText) ||
-		   strings.Contains(strings.ToLower(proposal.Subtitle), searchText) {
-			filtered = append(filtered, proposal)
-		}
-	}
-	
-	return filtered
-}
-
-// createNewProposalFlowFyne handles the complete flow for creating new proposals with Fyne
-func createNewProposalFlowFyne(app fyne.App, parent fyne.Window) {
-	// Create new window for form
-	formWindow := app.NewWindow("Nueva Propuesta")
-	formWindow.Resize(fyne.NewSize(600, 500))
-	formWindow.CenterOnScreen()
-
-	// Form fields
-	titleEntry := widget.NewEntry()
-	titleEntry.SetText("Propuesta de Servicios")
-	titleEntry.SetPlaceHolder("Ingresa el título")
-
-	subtitleEntry := widget.NewEntry()
-	subtitleEntry.SetPlaceHolder("Ingresa el subtítulo")
-
-	promptEntry := widget.NewMultiLineEntry()
-	promptEntry.SetPlaceHolder("Escribe aquí tu prompt...")
-	promptEntry.Resize(fyne.NewSize(0, 200))
-
-	// Form layout
-	form := &widget.Form{
-		Items: []*widget.FormItem{
-			{Text: "Título:", Widget: titleEntry},
-			{Text: "Subtítulo:", Widget: subtitleEntry},
-			{Text: "Prompt:", Widget: promptEntry},
-		},
-	}
-
-	// Buttons
-	createBtn := widget.NewButton("Crear Propuesta", func() {
-		title := strings.TrimSpace(titleEntry.Text)
-		subtitle := strings.TrimSpace(subtitleEntry.Text)
-		prompt := strings.TrimSpace(promptEntry.Text)
-
-		if prompt == "" {
-			dialog.ShowError(fmt.Errorf("el prompt no puede estar vacío"), formWindow)
-			return
-		}
-
-		// Create request
-		request := propapi.TextGenerationRequest{
-			Title:    title,
-			Subtitle: subtitle,
-			Prompt:   prompt,
-			Model:    "gpt-5-chat-latest",
-		}
-
-		// Show generation menu
-		showGenerationMenuFyne(app, formWindow, request)
-	})
-
-	cancelBtn := widget.NewButton("Cancelar", func() {
-		formWindow.Close()
-	})
-
-	// Layout
-	content := container.NewVBox(
-		widget.NewLabel("Completa los datos de la nueva propuesta:"),
-		widget.NewSeparator(),
-		form,
-		widget.NewSeparator(),
-		container.NewHBox(cancelBtn, createBtn),
-	)
-
-	formWindow.SetContent(container.NewPadded(content))
-	formWindow.Show()
-}
-
-// showGenerationMenuFyne shows options for generating documents after creating proposal
-func showGenerationMenuFyne(app fyne.App, parent fyne.Window, request propapi.TextGenerationRequest) {
-	genWindow := app.NewWindow("Generar Documentos")
-	genWindow.Resize(fyne.NewSize(500, 400))
-	genWindow.CenterOnScreen()
-
-	title := widget.NewLabel("¿Qué documento quieres generar?")
-	title.Alignment = fyne.TextAlignCenter
-
-	// Buttons
-	mdBtn := widget.NewButton("📝 Solo Texto (MD)", func() {
-		client, err := createClient()
-		if err != nil {
-			dialog.ShowError(fmt.Errorf("error creando cliente: %v", err), genWindow)
-			return
-		}
-		response, err := client.CreateProposal(request)
-		if err != nil {
-			dialog.ShowError(fmt.Errorf("error creando propuesta: %v", err), genWindow)
-			return
-		}
-		mdPath := getDownloadPath(response.ID + ".md")
-		_ = client.DownloadProposalFile(response.ID, "md", mdPath)
-		homeDir, _ := os.UserHomeDir()
-		openDirectory(filepath.Join(homeDir, "Downloads"))
-		genWindow.Close()
-		parent.Close()
-	})
-
-	htmlBtn := widget.NewButton("🌐 Generar HTML", func() {
-		client, err := createClient()
-		if err != nil {
-			dialog.ShowError(fmt.Errorf("error creando cliente: %v", err), genWindow)
-			return
-		}
-		response, err := client.CreateProposal(request)
-		if err != nil {
-			dialog.ShowError(fmt.Errorf("error creando propuesta: %v", err), genWindow)
-			return
-		}
-		generateHTMLAndPDFFyne(app, genWindow, response.ID)
-		genWindow.Close()
-		parent.Close()
-	})
-
-	pdfBtn := widget.NewButton("📄 Generar PDF", func() {
-		client, err := createClient()
-		if err != nil {
-			dialog.ShowError(fmt.Errorf("error creando cliente: %v", err), genWindow)
-			return
-		}
-		response, err := client.CreateProposal(request)
-		if err != nil {
-			dialog.ShowError(fmt.Errorf("error creando propuesta: %v", err), genWindow)
-			return
-		}
-		generateHTMLAndPDFFyne(app, genWindow, response.ID)
-		genWindow.Close()
-		parent.Close()
-	})
-
-	cancelBtn := widget.NewButton("🏠 Volver al Menú Principal", func() {
-		genWindow.Close()
-		parent.Close()
-	})
-
-	// Layout
-	content := container.NewVBox(
-		title,
-		widget.NewSeparator(),
-		container.NewCenter(container.NewVBox(mdBtn, htmlBtn, pdfBtn)),
-		widget.NewSeparator(),
-		container.NewCenter(cancelBtn),
-	)
-
-	genWindow.SetContent(container.NewPadded(content))
-	genWindow.Show()
-}
-
-// showExistingProposalFlowFyne handles the complete flow for existing proposals with Fyne
-func showExistingProposalFlowFyne(app fyne.App, parent fyne.Window, client *propapi.Client) {
-	// Show loading dialog
-	loadingDialog := dialog.NewProgressInfinite("Cargando", "Obteniendo propuestas...", parent)
-	loadingDialog.Show()
-
-	// Fetch proposals in goroutine
-	go func() {
-		proposals, err := client.GetProposals()
-		loadingDialog.Hide()
-
-		if err != nil {
-			dialog.ShowError(fmt.Errorf("error obteniendo propuestas: %v", err), parent)
-			return
-		}
-
-		if len(proposals) == 0 {
-			dialog.ShowInformation("Sin propuestas", "No hay propuestas disponibles", parent)
-			return
-		}
-
-		// Show proposals list
-		showProposalsListFyne(app, parent, client, proposals)
-	}()
-}
-
-// showProposalsListFyne shows a list of proposals for selection
-func showProposalsListFyne(app fyne.App, parent fyne.Window, client *propapi.Client, proposals []propapi.Proposal) {
-	listWindow := app.NewWindow("Propuestas Existentes")
-	listWindow.Resize(fyne.NewSize(900, 600))
-	listWindow.CenterOnScreen()
-
-	// Create list widget
-	list := widget.NewList(
-		func() int {
-			return len(proposals)
-		},
-		func() fyne.CanvasObject {
-			return container.NewHBox(
-				widget.NewLabel("ID"),
-				widget.NewLabel("Título"),
-				widget.NewLabel("Subtítulo"),
-				widget.NewLabel("Creada"),
-			)
-		},
-		func(id widget.ListItemID, obj fyne.CanvasObject) {
-			proposal := proposals[id]
-			container := obj.(*fyne.Container)
-			container.Objects[0].(*widget.Label).SetText(proposal.ID)
-			container.Objects[1].(*widget.Label).SetText(proposal.Title)
-			container.Objects[2].(*widget.Label).SetText(proposal.Subtitle)
-			container.Objects[3].(*widget.Label).SetText(proposal.CreatedAt.Format("2006-01-02 15:04"))
-		},
-	)
-
-	// Selection handler
-	list.OnSelected = func(id widget.ListItemID) {
-		selectedProposal := proposals[id]
-		showProposalManagementFyne(app, listWindow, client, selectedProposal)
-	}
-
-	// Layout
-	content := container.NewVBox(
-		widget.NewLabel("Selecciona una propuesta:"),
-		widget.NewSeparator(),
-		list,
-	)
-
-	listWindow.SetContent(container.NewPadded(content))
-	listWindow.Show()
-}
-
-// showProposalManagementFyne shows the management interface for a specific proposal
-func showProposalManagementFyne(app fyne.App, parent fyne.Window, client *propapi.Client, proposal propapi.Proposal) {
-	mgmtWindow := app.NewWindow("Gestionar: " + proposal.Title)
-	mgmtWindow.Resize(fyne.NewSize(500, 600))
-	mgmtWindow.CenterOnScreen()
-
-	title := widget.NewLabel("Selecciona una acción:")
-	title.Alignment = fyne.TextAlignCenter
-
-	// Create action buttons based on available documents
-	var buttons []fyne.CanvasObject
-
-	// Always available actions
-	buttons = append(buttons, widget.NewButton("📝 Ver propuesta (MD)", func() {
-		mdPath := getDownloadPath(proposal.ID + ".md")
-		if err := client.DownloadProposalFile(proposal.ID, "md", mdPath); err != nil {
-			dialog.ShowError(fmt.Errorf("MD no disponible aún"), mgmtWindow)
-		} else {
-			dialog.ShowInformation("Descarga MD", "MD descargado en carpeta de Descargas", mgmtWindow)
-		}
-		homeDir, _ := os.UserHomeDir()
-		openDirectory(filepath.Join(homeDir, "Downloads"))
-	}))
-
-	buttons = append(buttons, widget.NewButton("🛠️ Regenerar (título/subtítulo/prompt)", func() {
-		regenerateProposalFyne(app, mgmtWindow, client, &proposal)
-	}))
-
-	buttons = append(buttons, widget.NewButton("✍️ Cambiar solo título/subtítulo", func() {
-		updateTitleSubtitleFyne(app, mgmtWindow, client, &proposal)
-	}))
-
-	// HTML actions
-	if proposal.HTMLURL != "" {
-		buttons = append(buttons, widget.NewButton("🌐 Ver HTML", func() {
-			downloadPath := getDownloadPath(proposal.ID + ".html")
-			if err := client.DownloadProposalFile(proposal.ID, "html", downloadPath); err != nil {
-				dialog.ShowError(fmt.Errorf("HTML no disponible aún"), mgmtWindow)
-			} else {
-				dialog.ShowInformation("Descarga HTML", "HTML descargado en carpeta de Descargas", mgmtWindow)
-			}
-			homeDir, _ := os.UserHomeDir()
-			openDirectory(filepath.Join(homeDir, "Downloads"))
-		}))
-		buttons = append(buttons, widget.NewButton("🔁 Regenerar HTML", func() {
-			generateHTMLFyne(app, mgmtWindow, client, proposal.ID)
-		}))
-	} else {
-		buttons = append(buttons, widget.NewButton("🌐 Generar HTML", func() {
-			generateHTMLFyne(app, mgmtWindow, client, proposal.ID)
-		}))
-	}
-
-	// PDF actions
-	if proposal.PDFURL != "" {
-		buttons = append(buttons, widget.NewButton("📄 Ver PDF", func() {
-			downloadPath := getDownloadPath(proposal.ID + ".pdf")
-			if err := client.DownloadProposalFile(proposal.ID, "pdf", downloadPath); err != nil {
-				dialog.ShowError(fmt.Errorf("PDF no disponible aún"), mgmtWindow)
-			} else {
-				dialog.ShowInformation("Descarga PDF", "PDF descargado en carpeta de Descargas", mgmtWindow)
-			}
-			homeDir, _ := os.UserHomeDir()
-			openDirectory(filepath.Join(homeDir, "Downloads"))
-		}))
-		buttons = append(buttons, widget.NewButton("🔁 Regenerar PDF", func() {
-			generatePDFFyne(app, mgmtWindow, client, proposal.ID)
-		}))
-	} else {
-		buttons = append(buttons, widget.NewButton("📄 Generar PDF", func() {
-			generatePDFFyne(app, mgmtWindow, client, proposal.ID)
-		}))
-	}
-
-	// Additional actions
-	buttons = append(buttons, widget.NewButton("✏️ Modificar propuesta", func() {
-		modifyProposalFyne(app, mgmtWindow, client, proposal)
-	}))
-
-	buttons = append(buttons, widget.NewButton("📥 Descargar archivos", func() {
-		downloadSpecificProposal(client, proposal)
-		dialog.ShowInformation("Descarga", "Archivos descargados en carpeta de Descargas", mgmtWindow)
-	}))
-
-	buttons = append(buttons, widget.NewButton("🏠 Volver al Menú Principal", func() {
-		mgmtWindow.Close()
-		parent.Close()
-	}))
-
-	// Layout
-	content := container.NewVBox(
-		title,
-		widget.NewSeparator(),
-		container.NewGridWithColumns(1, buttons...),
-	)
-
-	mgmtWindow.SetContent(container.NewPadded(content))
-	mgmtWindow.Show()
-}
-
-// regenerateProposalFyne shows form to regenerate proposal
-func regenerateProposalFyne(app fyne.App, parent fyne.Window, client *propapi.Client, proposal *propapi.Proposal) {
-	formWindow := app.NewWindow("Regenerar Propuesta: " + proposal.Title)
-	formWindow.Resize(fyne.NewSize(700, 500))
-	formWindow.CenterOnScreen()
-
-	// Form fields with current values
-	titleEntry := widget.NewEntry()
-	titleEntry.SetText(proposal.Title)
-
-	subtitleEntry := widget.NewEntry()
-	subtitleEntry.SetText(proposal.Subtitle)
-
-	promptEntry := widget.NewMultiLineEntry()
-	promptEntry.SetText(proposal.Prompt)
-	promptEntry.Resize(fyne.NewSize(0, 200))
-
-	// Form
-	form := &widget.Form{
-		Items: []*widget.FormItem{
-			{Text: "Título:", Widget: titleEntry},
-			{Text: "Subtítulo:", Widget: subtitleEntry},
-			{Text: "Prompt:", Widget: promptEntry},
-		},
-	}
-
-	// Buttons
-	regenerateBtn := widget.NewButton("Regenerar", func() {
-		title := strings.TrimSpace(titleEntry.Text)
-		subtitle := strings.TrimSpace(subtitleEntry.Text)
-		prompt := strings.TrimSpace(promptEntry.Text)
-
-		body := map[string]string{
-			"title":   title,
-			"subtitle": subtitle,
-			"prompt":  prompt,
-			"model":   "gpt-5-chat-latest",
-		}
-		b, _ := json.Marshal(body)
-		req, err := http.NewRequest("POST", fmt.Sprintf("%s/proposal/%s/regenerate", client.BaseURL, proposal.ID), bytes.NewBuffer(b))
-		if err != nil {
-			dialog.ShowError(fmt.Errorf("no se pudo crear la solicitud"), formWindow)
-			return
-		}
-		req.Header.Set("Content-Type", "application/json")
-		if client.AuthFunc != nil {
-			client.AuthFunc(req)
-		}
-		resp, err := (&http.Client{}).Do(req)
-		if err != nil {
-			dialog.ShowError(fmt.Errorf("error de red"), formWindow)
-			return
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != 200 {
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			dialog.ShowError(fmt.Errorf("fallo al regenerar: %s", string(bodyBytes)), formWindow)
-			return
-		}
-
-		// Update local proposal state
-		proposal.Title = title
-		proposal.Subtitle = subtitle
-		proposal.Prompt = prompt
-		proposal.HTMLURL = ""
-		proposal.PDFURL = ""
-
-		dialog.ShowInformation("Éxito", "Texto regenerado. Generando HTML y PDF...", formWindow)
-		generateHTMLAndPDFFyne(app, formWindow, proposal.ID)
-		formWindow.Close()
-	})
-
-	cancelBtn := widget.NewButton("Cancelar", func() {
-		formWindow.Close()
-	})
-
-	// Layout
-	content := container.NewVBox(
-		widget.NewLabel("Edita los campos para regenerar el contenido (MD se reemplaza)"),
-		widget.NewSeparator(),
-		form,
-		widget.NewSeparator(),
-		container.NewHBox(cancelBtn, regenerateBtn),
-	)
-
-	formWindow.SetContent(container.NewPadded(content))
-	formWindow.Show()
-}
-
-// updateTitleSubtitleFyne shows form to update title and subtitle
-func updateTitleSubtitleFyne(app fyne.App, parent fyne.Window, client *propapi.Client, proposal *propapi.Proposal) {
-	formWindow := app.NewWindow("Actualizar Título/Subtítulo: " + proposal.Title)
-	formWindow.Resize(fyne.NewSize(600, 300))
-	formWindow.CenterOnScreen()
-
-	// Form fields with current values
-	titleEntry := widget.NewEntry()
-	titleEntry.SetText(proposal.Title)
-
-	subtitleEntry := widget.NewEntry()
-	subtitleEntry.SetText(proposal.Subtitle)
-
-	// Form
-	form := &widget.Form{
-		Items: []*widget.FormItem{
-			{Text: "Título:", Widget: titleEntry},
-			{Text: "Subtítulo:", Widget: subtitleEntry},
-		},
-	}
-
-	// Buttons
-	updateBtn := widget.NewButton("Actualizar", func() {
-		title := strings.TrimSpace(titleEntry.Text)
-		subtitle := strings.TrimSpace(subtitleEntry.Text)
-
-		body := map[string]string{
-			"title":    title,
-			"subtitle": subtitle,
-		}
-		b, _ := json.Marshal(body)
-		req, err := http.NewRequest("PATCH", fmt.Sprintf("%s/proposal/%s/title-subtitle", client.BaseURL, proposal.ID), bytes.NewBuffer(b))
-		if err != nil {
-			dialog.ShowError(fmt.Errorf("no se pudo crear la solicitud"), formWindow)
-			return
-		}
-		req.Header.Set("Content-Type", "application/json")
-		if client.AuthFunc != nil {
-			client.AuthFunc(req)
-		}
-		resp, err := (&http.Client{}).Do(req)
-		if err != nil {
-			dialog.ShowError(fmt.Errorf("error de red"), formWindow)
-			return
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != 200 {
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			dialog.ShowError(fmt.Errorf("fallo al actualizar: %s", string(bodyBytes)), formWindow)
-			return
-		}
-
-		proposal.Title = title
-		proposal.Subtitle = subtitle
-		dialog.ShowInformation("Éxito", "Título/Subtítulo actualizados. Si deseas verlos en HTML/PDF, vuelve a generarlos.", formWindow)
-		formWindow.Close()
-	})
-
-	cancelBtn := widget.NewButton("Cancelar", func() {
-		formWindow.Close()
-	})
-
-	// Layout
-	content := container.NewVBox(
-		form,
-		widget.NewSeparator(),
-		container.NewHBox(cancelBtn, updateBtn),
-	)
-
-	formWindow.SetContent(container.NewPadded(content))
-	formWindow.Show()
-}
-
-// modifyProposalFyne shows form to modify proposal
-func modifyProposalFyne(app fyne.App, parent fyne.Window, client *propapi.Client, proposal propapi.Proposal) {
-	formWindow := app.NewWindow("Modificar Propuesta: " + proposal.Title)
-	formWindow.Resize(fyne.NewSize(600, 500))
-	formWindow.CenterOnScreen()
-
-	// Form fields
-	titleEntry := widget.NewEntry()
-	titleEntry.SetText(proposal.Title)
-
-	subtitleEntry := widget.NewEntry()
-	subtitleEntry.SetText(proposal.Subtitle)
-
-	promptEntry := widget.NewMultiLineEntry()
-	promptEntry.SetText(proposal.Title + " modificada")
-	promptEntry.Resize(fyne.NewSize(0, 200))
-
-	// Form
-	form := &widget.Form{
-		Items: []*widget.FormItem{
-			{Text: "Título:", Widget: titleEntry},
-			{Text: "Subtítulo:", Widget: subtitleEntry},
-			{Text: "Prompt:", Widget: promptEntry},
-		},
-	}
-
-	// Buttons
-	modifyBtn := widget.NewButton("Modificar", func() {
-		title := strings.TrimSpace(titleEntry.Text)
-		subtitle := strings.TrimSpace(subtitleEntry.Text)
-		prompt := strings.TrimSpace(promptEntry.Text)
-
-		if prompt == "" {
-			dialog.ShowError(fmt.Errorf("el prompt no puede estar vacío"), formWindow)
-			return
-		}
-
-		// Create request
-		request := propapi.TextGenerationRequest{
-			Title:    title,
-			Subtitle: subtitle,
-			Prompt:   prompt,
-			Model:    "gpt-5-chat-latest",
-		}
-
-		// Send modification request
-		jsonData, err := json.Marshal(request)
-		if err != nil {
-			dialog.ShowError(fmt.Errorf("error al serializar la solicitud: %v", err), formWindow)
-			return
-		}
-
-		req, err := http.NewRequest("PUT", client.BaseURL+"/proposal/"+proposal.ID, bytes.NewBuffer(jsonData))
-		if err != nil {
-			dialog.ShowError(fmt.Errorf("error al crear la solicitud: %v", err), formWindow)
-			return
-		}
-		req.Header.Set("Content-Type", "application/json")
-		if client.AuthFunc != nil {
-			client.AuthFunc(req)
-		}
-
-		client := &http.Client{}
-		resp, err := client.Do(req)
-		if err != nil {
-			dialog.ShowError(fmt.Errorf("error al enviar la solicitud: %v", err), formWindow)
-			return
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != 200 {
-			body, _ := io.ReadAll(resp.Body)
-			dialog.ShowError(fmt.Errorf("error del servidor (%d): %s", resp.StatusCode, string(body)), formWindow)
-			return
-		}
-
-		var response propapi.ModifyProposalResponse
-		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-			dialog.ShowError(fmt.Errorf("error al decodificar la respuesta: %v", err), formWindow)
-			return
-		}
-
-		dialog.ShowInformation("Éxito", "Propuesta modificada y documentos generados", formWindow)
-		generateHTMLAndPDFFyne(app, formWindow, proposal.ID)
-		formWindow.Close()
-	})
-
-	cancelBtn := widget.NewButton("Cancelar", func() {
-		formWindow.Close()
-	})
-
-	// Layout
-	content := container.NewVBox(
-		widget.NewLabel("Ingresa el nuevo prompt:"),
-		widget.NewSeparator(),
-		form,
-		widget.NewSeparator(),
-		container.NewHBox(cancelBtn, modifyBtn),
-	)
-
-	formWindow.SetContent(container.NewPadded(content))
-	formWindow.Show()
-}
-
-// generateHTMLFyne generates HTML with Fyne interface
-func generateHTMLFyne(app fyne.App, parent fyne.Window, client *propapi.Client, proposalID string) {
-	// Show progress dialog
-	progressDialog := dialog.NewProgressInfinite("Generando HTML", "Conectando con la API...", parent)
-	progressDialog.Show()
-
-	go func() {
-		_, err := client.GenerateHTML(proposalID)
-		if err != nil {
-			progressDialog.Hide()
-			dialog.ShowError(fmt.Errorf("error al generar HTML: %v", err), parent)
-			return
-		}
-
-		progressDialog.Hide()
-		dialog.ShowInformation("Éxito", "HTML generado exitosamente", parent)
-		
-		// Download HTML file
-		client.DownloadProposalFile(proposalID, "html", getDownloadPath(proposalID+".html"))
-	}()
-}
-
-// generatePDFFyne generates PDF with Fyne interface
-func generatePDFFyne(app fyne.App, parent fyne.Window, client *propapi.Client, proposalID string) {
-	// Create mode selection window
-	modeWindow := app.NewWindow("Generar PDF")
-	modeWindow.Resize(fyne.NewSize(400, 200))
-	modeWindow.CenterOnScreen()
-	
-	modeSelect := widget.NewSelect([]string{"normal", "dapec", "oscuro"}, func(value string) {
-		modeWindow.Close()
-		
-		// Show progress dialog
-		progressDialog := dialog.NewProgressInfinite("Generando PDF", "Generando PDF en modo "+value+"...", parent)
-		progressDialog.Show()
-
-		go func() {
-			pdfRequest := propapi.PDFGenerationRequest{
-				ProposalID: proposalID,
-				Modo:       value,
-			}
-			jsonData, err := json.Marshal(pdfRequest)
-			if err != nil {
-				progressDialog.Hide()
-				dialog.ShowError(fmt.Errorf("error al serializar solicitud PDF: %v", err), parent)
-				return
-			}
-
-			req, err := http.NewRequest("POST", client.BaseURL+"/generate-pdf", bytes.NewBuffer(jsonData))
-			if err != nil {
-				progressDialog.Hide()
-				dialog.ShowError(fmt.Errorf("error al crear solicitud PDF: %v", err), parent)
-				return
-			}
-			req.Header.Set("Content-Type", "application/json")
-			if client.AuthFunc != nil {
-			client.AuthFunc(req)
-		}
-
-			httpClient := &http.Client{}
-			resp, err := httpClient.Do(req)
-			if err != nil {
-				progressDialog.Hide()
-				dialog.ShowError(fmt.Errorf("error al generar PDF: %v", err), parent)
-				return
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != 200 {
-				body, _ := io.ReadAll(resp.Body)
-				progressDialog.Hide()
-				dialog.ShowError(fmt.Errorf("error del servidor (%d): %s", resp.StatusCode, string(body)), parent)
-				return
-			}
-
-			var pdfResponse propapi.PDFGenerationResponse
-			if err := json.NewDecoder(resp.Body).Decode(&pdfResponse); err != nil {
-				progressDialog.Hide()
-				dialog.ShowError(fmt.Errorf("error al decodificar respuesta PDF: %v", err), parent)
-				return
-			}
-
-			progressDialog.Hide()
-			dialog.ShowInformation("Éxito", "PDF generado exitosamente", parent)
-
-			// Download PDF file
-			filepath := getDownloadPath(proposalID + ".pdf")
-			if err := client.DownloadProposalFile(proposalID, "pdf", filepath); err != nil {
-				dialog.ShowError(fmt.Errorf("error al descargar PDF: %v", err), parent)
-				return
-			}
-
-			// Open PDF file
-			openFile(filepath)
-		}()
-	})
-	modeSelect.SetSelected("normal")
-
-	content := container.NewVBox(
-		widget.NewLabel("Selecciona el modo de impresión del PDF:"),
-		modeSelect,
-		widget.NewButton("Generar", func() {
-			if modeSelect.Selected != "" {
-				modeSelect.OnChanged(modeSelect.Selected)
-			}
-		}),
-		widget.NewButton("Cancelar", func() {
-			modeWindow.Close()
-		}),
-	)
-	
-	modeWindow.SetContent(container.NewPadded(content))
-	modeWindow.Show()
-}
-
-// generateHTMLAndPDFFyne generates both HTML and PDF
-func generateHTMLAndPDFFyne(app fyne.App, parent fyne.Window, proposalID string) {
-	// Show progress dialog
-	progressDialog := dialog.NewProgressInfinite("Generando Documentos", "Generando HTML y PDF...", parent)
-	progressDialog.Show()
-
-	go func() {
-		// Create client
-		client, err := createClient()
-		if err != nil {
-			progressDialog.Hide()
-			dialog.ShowError(fmt.Errorf("error creando cliente: %v", err), parent)
-			return
-		}
-
-		// Generate HTML
-		_, err = client.GenerateHTML(proposalID)
-		if err != nil {
-			progressDialog.Hide()
-			dialog.ShowError(fmt.Errorf("error al generar HTML: %v", err), parent)
-			return
-		}
-		// Generate PDF
-		_, err = client.GeneratePDF(proposalID, "normal")
-		if err != nil {
-			progressDialog.Hide()
-			dialog.ShowError(fmt.Errorf("error al generar PDF: %v", err), parent)
-			return
-		}
-
-		progressDialog.Hide()
-		dialog.ShowInformation("Éxito", "HTML y PDF generados exitosamente", parent)
-	}()
-}
-
-

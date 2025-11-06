@@ -25,22 +25,10 @@ var GobuildCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		// Build for Prop
-		if err := BuildProp(); err != nil {
-			os.Exit(1)
-		}
-
-		// Build for Prop Windows
-		if err := BuildPropWindows(); err != nil {
-			os.Exit(1)
-		}
-
 		fmt.Println("Build process completed successfully!")
 		fmt.Println("Generated files:")
 		fmt.Println("  - orgm (Linux binary)")
 		fmt.Println("  - orgm.exe (Windows binary)")
-		fmt.Println("  - orgm-prop (Linux binary)")
-		fmt.Println("  - orgm-prop.exe (Windows binary)")
 	},
 }
 
@@ -78,33 +66,6 @@ func BuildWindows() error {
 	return nil
 }
 
-func BuildProp() error {
-	fmt.Println("Building orgm-prop (Linux) with Wails...")
-	wailsCmd := exec.Command("wails", "build")
-	wailsCmd.Dir = "./apps/prop"
-	wailsCmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH=amd64")
-	output, err := wailsCmd.CombinedOutput()
-	if err != nil {
-		fmt.Printf("Error building orgm-prop (Linux) with Wails: %s \n %s", err, output)
-		return err
-	}
-	fmt.Printf("Successfully built orgm-prop (Linux) with Wails:\n%s\n", output)
-	return nil
-}
-
-func BuildPropWindows() error {
-	fmt.Println("Building orgm-prop.exe (Windows) with Wails...")
-	wailsCmd := exec.Command("wails", "build")
-	wailsCmd.Dir = "./apps/prop"
-	wailsCmd.Env = append(os.Environ(), "GOOS=windows", "GOARCH=amd64", "CGO_ENABLED=1", "CC=x86_64-w64-mingw32-gcc")
-	output, err := wailsCmd.CombinedOutput()
-	if err != nil {
-		fmt.Printf("Error building orgm-prop.exe (Windows) with Wails: %s \n %s", err, output)
-		return err
-	}
-	fmt.Printf("Successfully built orgm-prop.exe (Windows) with Wails:\n%s\n", output)
-	return nil
-}
 
 
 func init() {

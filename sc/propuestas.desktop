@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Gestor de Propuestas
+Comment=Gestor de propuestas con interfaz TUI
+Exec=orgm prop
+Icon=propuestas-icon
+Terminal=true
+Categories=Office;Utility;
+Keywords=propuestas;documentos;gestor;
+StartupNotify=true
+
+
