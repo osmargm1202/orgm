@@ -19,9 +19,10 @@ import (
 
 // PropCmd represents the prop command
 var PropCmd = &cobra.Command{
-	Use:   "prop",
+	Use:   "prop [ruta_archivo.md]",
 	Short: "Gestión de propuestas con TUI",
-	Long:  `Gestión de propuestas con interfaz TUI usando Bubbletea.`,
+	Long:  `Gestión de propuestas con interfaz TUI usando Bubbletea. Si se proporciona una ruta a un archivo .md, se iniciará directamente el flujo de creación de propuesta.`,
+	Args:  cobra.MaximumNArgs(1),
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		// Ensure token for all subcommands
 		if _, err := EnsureGCloudIDToken(); err != nil {
@@ -30,7 +31,11 @@ var PropCmd = &cobra.Command{
 		return nil
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		runPropTUI()
+		var mdFile string
+		if len(args) > 0 {
+			mdFile = args[0]
+		}
+		runPropTUI(mdFile)
 	},
 }
 
@@ -91,7 +96,9 @@ type appModel struct {
 	titleInput    textarea.Model
 	subtitleInput textarea.Model
 	promptInput   textarea.Model
-	formFocus     int // 0: title, 1: subtitle, 2: prompt
+	filePathInput textarea.Model
+	formFocus     int // 0: title, 1: subtitle, 2: file path
+	initialMDfile string // Archivo .md proporcionado desde CLI
 	
 	// Generation menu
 	genMenuCursor int
@@ -176,7 +183,7 @@ func addSpaceAfterEmoji(s string) string {
 	return s
 }
 
-func runPropTUI() {
+func runPropTUI(initialMDfile string) {
 	// Create client
 	client, err := createClient()
 	if err != nil {
@@ -185,7 +192,18 @@ func runPropTUI() {
 	}
 	
 	// Initialize model
-	model := initialModel(client)
+	model := initialModel(client, initialMDfile)
+	
+	// Si se proporcionó un archivo, iniciar directamente en el flujo de creación
+	if initialMDfile != "" {
+		model.state = stateNewProposal
+		model.showNewForm = true
+		model.showProposals = false
+		model.showManagement = false
+		model.activeSection = 1
+		model.formFocus = 0
+		model.titleInput.Focus()
+	}
 	
 	// Run program
 	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
@@ -195,7 +213,7 @@ func runPropTUI() {
 	}
 }
 
-func initialModel(client *propapi.Client) appModel {
+func initialModel(client *propapi.Client, initialMDfile string) appModel {
 	// Main menu
 	mainMenuItems := []string{
 		"🆕 Nueva Propuesta",
@@ -228,13 +246,19 @@ func initialModel(client *propapi.Client) appModel {
 	si.SetWidth(100)
 	si.SetHeight(3)
 	
-	// Prompt textarea
+	// Prompt textarea (ya no se usa directamente, se lee del archivo)
 	ta := textarea.New()
 	ta.Placeholder = "Escribe aquí tu prompt..."
 	ta.CharLimit = 5000
 	ta.SetWidth(100)
 	ta.SetHeight(12)
-	ta.Focus()
+	
+	// File path input - para ruta al archivo .md
+	fpi := textarea.New()
+	fpi.Placeholder = "Ruta al archivo .md"
+	fpi.CharLimit = 500
+	fpi.SetWidth(100)
+	fpi.SetHeight(3)
 	
 	// Regenerate inputs - título y subtítulo multilínea
 	rti := textarea.New()
@@ -306,7 +330,9 @@ func initialModel(client *propapi.Client) appModel {
 		titleInput:       ti,
 		subtitleInput:    si,
 		promptInput:      ta,
+		filePathInput:    fpi,
 		formFocus:        0,
+		initialMDfile:    initialMDfile,
 		genMenuCursor:    0,
 		genMenuItems:     genMenuItems,
 		proposalsList:    proposalsList,
@@ -386,6 +412,7 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.titleInput.SetWidth(textareaWidth)
 		m.subtitleInput.SetWidth(textareaWidth)
 		m.promptInput.SetWidth(textareaWidth)
+		m.filePathInput.SetWidth(textareaWidth)
 		m.regTitleInput.SetWidth(textareaWidth)
 		m.regSubtitleInput.SetWidth(textareaWidth)
 		m.regPromptInput.SetWidth(textareaWidth)
@@ -653,30 +680,52 @@ func (m appModel) viewUnified() string {
 		}
 		b.WriteString("\n")
 		
-		// Title
-		b.WriteString("Título:\n")
-		if m.activeSection == 1 && m.formFocus == 0 {
-			b.WriteString(selectedStyle.Render(m.titleInput.View()))
-		} else {
-			b.WriteString(m.titleInput.View())
-		}
-		b.WriteString("\n")
+		readonlyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Faint(true)
 		
-		// Subtitle
-		b.WriteString("Subtítulo:\n")
-		if m.activeSection == 1 && m.formFocus == 1 {
-			b.WriteString(selectedStyle.Render(m.subtitleInput.View()))
-		} else {
-			b.WriteString(m.subtitleInput.View())
-		}
-		b.WriteString("\n")
-		
-		// Prompt
-		b.WriteString("Prompt:\n")
-		if m.activeSection == 1 && m.formFocus == 2 {
-			b.WriteString(selectedStyle.Render(m.promptInput.View()))
-		} else {
-			b.WriteString(m.promptInput.View())
+		// Mostrar solo el campo actual según formFocus (flujo secuencial)
+		if m.formFocus == 0 {
+			// Paso 1: Título
+			b.WriteString("Título:\n")
+			if m.activeSection == 1 {
+				b.WriteString(selectedStyle.Render(m.titleInput.View()))
+			} else {
+				b.WriteString(m.titleInput.View())
+			}
+			b.WriteString("\n")
+		} else if m.formFocus == 1 {
+			// Paso 2: Subtítulo (mostrar título readonly)
+			b.WriteString("Título:\n")
+			b.WriteString(readonlyStyle.Render(m.titleInput.Value()))
+			b.WriteString("\n\n")
+			
+			b.WriteString("Subtítulo:\n")
+			if m.activeSection == 1 {
+				b.WriteString(selectedStyle.Render(m.subtitleInput.View()))
+			} else {
+				b.WriteString(m.subtitleInput.View())
+			}
+			b.WriteString("\n")
+		} else if m.formFocus == 2 {
+			// Paso 3: Ruta archivo (mostrar título y subtítulo readonly)
+			b.WriteString("Título:\n")
+			b.WriteString(readonlyStyle.Render(m.titleInput.Value()))
+			b.WriteString("\n\n")
+			
+			b.WriteString("Subtítulo:\n")
+			if m.subtitleInput.Value() != "" {
+				b.WriteString(readonlyStyle.Render(m.subtitleInput.Value()))
+			} else {
+				b.WriteString(readonlyStyle.Render("(vacío)"))
+			}
+			b.WriteString("\n\n")
+			
+			b.WriteString("Ruta al archivo .md:\n")
+			if m.activeSection == 1 {
+				b.WriteString(selectedStyle.Render(m.filePathInput.View()))
+			} else {
+				b.WriteString(m.filePathInput.View())
+			}
+			b.WriteString("\n")
 		}
 		
 	} else if m.showProposals {
@@ -851,7 +900,35 @@ func (m *appModel) updateUnified(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.showProposals {
 					return m.handleProposalSelectionInUnified()
 				} else if m.showNewForm {
-					return m.handleNewProposalSubmitInUnified()
+					// Flujo secuencial: Enter avanza al siguiente paso
+					if m.formFocus == 0 {
+						// Validar título y avanzar a subtítulo
+						title := strings.TrimSpace(m.titleInput.Value())
+						if title == "" {
+							m.message = "El título no puede estar vacío"
+							m.messageType = "error"
+							return m, nil
+						}
+						m.formFocus = 1
+						m.titleInput.Blur()
+						m.subtitleInput.Focus()
+						m.message = ""
+						return m, nil
+					} else if m.formFocus == 1 {
+						// Avanzar a ruta archivo
+						m.formFocus = 2
+						m.subtitleInput.Blur()
+						m.filePathInput.Focus()
+						// Si hay un archivo inicial desde CLI, pre-llenarlo
+						if m.initialMDfile != "" {
+							m.filePathInput.SetValue(m.initialMDfile)
+						}
+						m.message = ""
+						return m, nil
+					} else if m.formFocus == 2 {
+						// Procesar el último paso
+						return m.handleNewProposalSubmitInUnified()
+					}
 				}
 			case 2: // Management menu
 				return m.handleManagementSelectionInUnified()
@@ -891,7 +968,7 @@ func (m *appModel) updateUnified(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case 1:
 			m.subtitleInput, cmd = m.subtitleInput.Update(msg)
 		case 2:
-			m.promptInput, cmd = m.promptInput.Update(msg)
+			m.filePathInput, cmd = m.filePathInput.Update(msg)
 		}
 	} else if m.showProposals && m.activeSection == 1 {
 		m.proposalsList, cmd = m.proposalsList.Update(msg)
@@ -951,12 +1028,25 @@ func (m *appModel) handleNewProposalSubmitInUnified() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	
+	// Flujo secuencial: solo procesar cuando formFocus == 2
+	if m.formFocus != 2 {
+		return m, nil
+	}
+	
 	title := strings.TrimSpace(m.titleInput.Value())
 	subtitle := strings.TrimSpace(m.subtitleInput.Value())
-	prompt := strings.TrimSpace(m.promptInput.Value())
+	filePath := strings.TrimSpace(m.filePathInput.Value())
 	
-	if prompt == "" {
-		m.message = "El prompt no puede estar vacío"
+	if filePath == "" {
+		m.message = "La ruta al archivo no puede estar vacía"
+		m.messageType = "error"
+		return m, nil
+	}
+	
+	// Leer el archivo .md
+	prompt, err := readMarkdownFile(filePath)
+	if err != nil {
+		m.message = fmt.Sprintf("Error: %v", err)
 		m.messageType = "error"
 		return m, nil
 	}
@@ -1058,37 +1148,51 @@ func (m appModel) updateNewProposal(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "tab":
-			m.formFocus = (m.formFocus + 1) % 3
-			switch m.formFocus {
-			case 0:
-				m.titleInput.Focus()
-				m.subtitleInput.Blur()
-				m.promptInput.Blur()
-				return m, nil
-			case 1:
-				m.titleInput.Blur()
-				m.subtitleInput.Focus()
-				m.promptInput.Blur()
-				return m, nil
-			case 2:
-				m.titleInput.Blur()
-				m.subtitleInput.Blur()
-				m.promptInput.Focus()
-				return m, nil
-			}
 		case "enter":
-			if m.formFocus == 2 {
-				// Create proposal
+			// Flujo secuencial: Enter avanza al siguiente paso
+			if m.formFocus == 0 {
+				// Validar título y avanzar a subtítulo
 				title := strings.TrimSpace(m.titleInput.Value())
-				subtitle := strings.TrimSpace(m.subtitleInput.Value())
-				prompt := strings.TrimSpace(m.promptInput.Value())
-				
-				if prompt == "" {
-					m.message = "El prompt no puede estar vacío"
+				if title == "" {
+					m.message = "El título no puede estar vacío"
 					m.messageType = "error"
 					return m, nil
 				}
+				m.formFocus = 1
+				m.titleInput.Blur()
+				m.subtitleInput.Focus()
+				m.message = ""
+				return m, nil
+			} else if m.formFocus == 1 {
+				// Avanzar a ruta archivo (subtítulo puede estar vacío)
+				m.formFocus = 2
+				m.subtitleInput.Blur()
+				m.filePathInput.Focus()
+				// Si hay un archivo inicial desde CLI, pre-llenarlo
+				if m.initialMDfile != "" {
+					m.filePathInput.SetValue(m.initialMDfile)
+				}
+				m.message = ""
+				return m, nil
+			} else if m.formFocus == 2 {
+				// Leer archivo y crear propuesta
+				filePath := strings.TrimSpace(m.filePathInput.Value())
+				if filePath == "" {
+					m.message = "La ruta al archivo no puede estar vacía"
+					m.messageType = "error"
+					return m, nil
+				}
+				
+				// Leer el archivo .md
+				prompt, err := readMarkdownFile(filePath)
+				if err != nil {
+					m.message = fmt.Sprintf("Error: %v", err)
+					m.messageType = "error"
+					return m, nil
+				}
+				
+				title := strings.TrimSpace(m.titleInput.Value())
+				subtitle := strings.TrimSpace(m.subtitleInput.Value())
 				
 				m.genRequest = propapi.TextGenerationRequest{
 					Title:    title,
@@ -1115,7 +1219,7 @@ func (m appModel) updateNewProposal(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case 1:
 		m.subtitleInput, cmd = m.subtitleInput.Update(msg)
 	case 2:
-		m.promptInput, cmd = m.promptInput.Update(msg)
+		m.filePathInput, cmd = m.filePathInput.Update(msg)
 	}
 	
 	return m, cmd
@@ -1126,37 +1230,50 @@ func (m appModel) viewNewProposal() string {
 	b.WriteString(titleStyle.Render("🆕 Nueva Propuesta"))
 	b.WriteString("\n\n")
 	
-	// Title
-	b.WriteString("Título:")
-	b.WriteString("\n")
+	readonlyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Faint(true)
+	
+	// Mostrar solo el campo actual según formFocus
 	if m.formFocus == 0 {
+		// Paso 1: Título
+		b.WriteString("Título:")
+		b.WriteString("\n")
 		b.WriteString(selectedStyle.Render(m.titleInput.View()))
-	} else {
-		b.WriteString(m.titleInput.View())
-	}
-	b.WriteString("\n\n")
-	
-	// Subtitle
-	b.WriteString("Subtítulo:")
-	b.WriteString("\n")
-	if m.formFocus == 1 {
+		b.WriteString("\n\n")
+		b.WriteString(normalStyle.Render("Enter para continuar | Esc para volver"))
+	} else if m.formFocus == 1 {
+		// Paso 2: Subtítulo (mostrar título readonly)
+		b.WriteString("Título:")
+		b.WriteString("\n")
+		b.WriteString(readonlyStyle.Render(m.titleInput.Value()))
+		b.WriteString("\n\n")
+		
+		b.WriteString("Subtítulo:")
+		b.WriteString("\n")
 		b.WriteString(selectedStyle.Render(m.subtitleInput.View()))
-	} else {
-		b.WriteString(m.subtitleInput.View())
+		b.WriteString("\n\n")
+		b.WriteString(normalStyle.Render("Enter para continuar | Esc para volver"))
+	} else if m.formFocus == 2 {
+		// Paso 3: Ruta archivo (mostrar título y subtítulo readonly)
+		b.WriteString("Título:")
+		b.WriteString("\n")
+		b.WriteString(readonlyStyle.Render(m.titleInput.Value()))
+		b.WriteString("\n\n")
+		
+		b.WriteString("Subtítulo:")
+		b.WriteString("\n")
+		if m.subtitleInput.Value() != "" {
+			b.WriteString(readonlyStyle.Render(m.subtitleInput.Value()))
+		} else {
+			b.WriteString(readonlyStyle.Render("(vacío)"))
+		}
+		b.WriteString("\n\n")
+		
+		b.WriteString("Ruta al archivo .md:")
+		b.WriteString("\n")
+		b.WriteString(selectedStyle.Render(m.filePathInput.View()))
+		b.WriteString("\n\n")
+		b.WriteString(normalStyle.Render("Enter para continuar | Esc para volver"))
 	}
-	b.WriteString("\n\n")
-	
-	// Prompt
-	b.WriteString("Prompt:")
-	b.WriteString("\n")
-	if m.formFocus == 2 {
-		b.WriteString(selectedStyle.Render(m.promptInput.View()))
-	} else {
-		b.WriteString(m.promptInput.View())
-	}
-	b.WriteString("\n\n")
-	
-	b.WriteString(normalStyle.Render("Tab para cambiar campo | Enter en prompt para continuar | Esc para volver"))
 	
 	if m.message != "" {
 		b.WriteString("\n\n")
@@ -2273,4 +2390,25 @@ func OpenDirectory(path string) {
 func isCommandAvailable(command string) bool {
 	_, err := exec.LookPath(command)
 	return err == nil
+}
+
+// readMarkdownFile reads and validates a markdown file
+func readMarkdownFile(path string) (string, error) {
+	// Validate file extension
+	if !strings.HasSuffix(strings.ToLower(path), ".md") {
+		return "", fmt.Errorf("el archivo debe tener extensión .md")
+	}
+	
+	// Check if file exists
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return "", fmt.Errorf("el archivo no existe: %s", path)
+	}
+	
+	// Read file content
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("error leyendo archivo: %w", err)
+	}
+	
+	return string(content), nil
 }

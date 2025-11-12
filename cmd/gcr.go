@@ -118,51 +118,118 @@ const (
 	DISPLAY_NAME = "Cuenta para Cloud Run"
 )
 
+// debugLog prints a debug message with timestamp
+func debugLog(format string, args ...interface{}) {
+	timestamp := time.Now().Format("2006-01-02 15:04:05.000")
+	message := fmt.Sprintf(format, args...)
+	fmt.Printf("[DEBUG %s] %s\n", timestamp, message)
+}
+
+// debugLogCmd prints the command that will be executed
+func debugLogCmd(cmd *exec.Cmd) {
+	cmdStr := cmd.Path
+	for _, arg := range cmd.Args[1:] {
+		cmdStr += " " + arg
+	}
+	debugLog("Ejecutando comando: %s", cmdStr)
+}
+
 // CreateServiceAccount creates a new Google Cloud service account
 func CreateServiceAccount(accountName string) error {
+	startTime := time.Now()
 	email := fmt.Sprintf("%s@%s.iam.gserviceaccount.com", accountName, PROJECT_ID)
+	
+	debugLog("Iniciando creación de cuenta de servicio: %s", accountName)
+	debugLog("Email de la cuenta: %s", email)
 	
 	// Create service account
 	cmd := exec.Command("gcloud", "iam", "service-accounts", "create", accountName,
 		"--display-name="+DISPLAY_NAME,
 		"--project="+PROJECT_ID)
 	
+	debugLogCmd(cmd)
+	debugLog("Inicio de ejecución del comando: %s", startTime.Format("2006-01-02 15:04:05.000"))
+	
 	output, err := cmd.CombinedOutput()
+	
+	elapsed := time.Since(startTime)
+	debugLog("Comando finalizado. Tiempo transcurrido: %v", elapsed)
+	
 	if err != nil {
+		debugLog("Error en la ejecución del comando: %v", err)
+		debugLog("Output del comando: %s", string(output))
 		return fmt.Errorf("error creando cuenta de servicio: %v\n%s", err, string(output))
 	}
 	
+	debugLog("Comando ejecutado exitosamente")
 	fmt.Printf("✅ Cuenta de servicio '%s' creada exitosamente\n", accountName)
 	fmt.Printf("📧 Email: %s\n", email)
+	debugLog("Tiempo total de creación: %v", elapsed)
 	
 	return nil
 }
 
 // CreateCompleteUser creates service account, adds permissions, and downloads credentials
 func CreateCompleteUser(accountName string) error {
+	overallStartTime := time.Now()
 	email := fmt.Sprintf("%s@%s.iam.gserviceaccount.com", accountName, PROJECT_ID)
 	jsonFile := fmt.Sprintf("./%s.json", accountName)
 	
+	debugLog("========================================")
+	debugLog("Iniciando proceso completo de creación de usuario: %s", accountName)
+	debugLog("Email: %s", email)
+	debugLog("Archivo JSON de salida: %s", jsonFile)
+	debugLog("Hora de inicio: %s", overallStartTime.Format("2006-01-02 15:04:05.000"))
+	debugLog("========================================")
+	
 	// 1. Create service account
 	fmt.Printf("🔧 Creando cuenta de servicio '%s'...\n", accountName)
+	debugLog("--- PASO 1: Crear cuenta de servicio ---")
+	step1Start := time.Now()
 	err := CreateServiceAccount(accountName)
+	step1Elapsed := time.Since(step1Start)
 	if err != nil {
+		debugLog("PASO 1 falló después de %v", step1Elapsed)
 		return fmt.Errorf("error en paso 1 (crear cuenta): %v", err)
 	}
+	debugLog("PASO 1 completado en %v", step1Elapsed)
+	debugLog("--- Fin PASO 1 ---")
 	
 	// 2. Add Cloud Run permissions
 	fmt.Printf("🔐 Agregando permisos de Cloud Run...\n")
+	debugLog("--- PASO 2: Agregar permisos de Cloud Run ---")
+	step2Start := time.Now()
 	err = AddUserToCloudRun(email)
+	step2Elapsed := time.Since(step2Start)
 	if err != nil {
+		debugLog("PASO 2 falló después de %v", step2Elapsed)
 		return fmt.Errorf("error en paso 2 (agregar permisos): %v", err)
 	}
+	debugLog("PASO 2 completado en %v", step2Elapsed)
+	debugLog("--- Fin PASO 2 ---")
 	
 	// 3. Download JSON credentials
 	fmt.Printf("📥 Descargando credenciales JSON...\n")
+	debugLog("--- PASO 3: Descargar credenciales JSON ---")
+	step3Start := time.Now()
 	err = DownloadServiceAccountJSON(accountName, jsonFile)
+	step3Elapsed := time.Since(step3Start)
 	if err != nil {
+		debugLog("PASO 3 falló después de %v", step3Elapsed)
 		return fmt.Errorf("error en paso 3 (descargar credenciales): %v", err)
 	}
+	debugLog("PASO 3 completado en %v", step3Elapsed)
+	debugLog("--- Fin PASO 3 ---")
+	
+	overallElapsed := time.Since(overallStartTime)
+	debugLog("========================================")
+	debugLog("Proceso completo finalizado exitosamente")
+	debugLog("Tiempo total: %v", overallElapsed)
+	debugLog("Resumen de tiempos:")
+	debugLog("  - Paso 1 (Crear cuenta): %v", step1Elapsed)
+	debugLog("  - Paso 2 (Agregar permisos): %v", step2Elapsed)
+	debugLog("  - Paso 3 (Descargar JSON): %v", step3Elapsed)
+	debugLog("========================================")
 	
 	fmt.Printf("🎉 Usuario '%s' configurado completamente!\n", accountName)
 	fmt.Printf("📁 Archivo de credenciales: %s\n", jsonFile)
@@ -191,17 +258,35 @@ func DeleteServiceAccount(accountName string) error {
 
 // AddUserToCloudRun adds a user to Cloud Run with appropriate permissions
 func AddUserToCloudRun(userEmail string) error {
+	startTime := time.Now()
+	
+	debugLog("Iniciando agregado de permisos de Cloud Run para: %s", userEmail)
+	debugLog("Proyecto: %s", PROJECT_ID)
+	debugLog("Rol: roles/run.developer")
+	debugLog("NOTA: Esta operación puede tardar mucho porque modifica la política IAM del proyecto")
+	
 	// Add Cloud Run Developer role
 	cmd := exec.Command("gcloud", "projects", "add-iam-policy-binding", PROJECT_ID,
 		"--member=serviceAccount:"+userEmail,
 		"--role=roles/run.developer")
 	
+	debugLogCmd(cmd)
+	debugLog("Inicio de ejecución del comando: %s", startTime.Format("2006-01-02 15:04:05.000"))
+	
 	output, err := cmd.CombinedOutput()
+	
+	elapsed := time.Since(startTime)
+	debugLog("Comando finalizado. Tiempo transcurrido: %v", elapsed)
+	
 	if err != nil {
+		debugLog("Error en la ejecución del comando: %v", err)
+		debugLog("Output del comando: %s", string(output))
 		return fmt.Errorf("error agregando usuario a Cloud Run: %v\n%s", err, string(output))
 	}
 	
+	debugLog("Comando ejecutado exitosamente")
 	fmt.Printf("✅ Usuario '%s' agregado a Cloud Run exitosamente\n", userEmail)
+	debugLog("Tiempo total de agregado de permisos: %v", elapsed)
 	
 	return nil
 }
@@ -225,23 +310,40 @@ func RemoveUserFromCloudRun(userEmail string) error {
 
 // DownloadServiceAccountJSON downloads the JSON credentials for a service account
 func DownloadServiceAccountJSON(accountName, outputPath string) error {
+	startTime := time.Now()
 	email := fmt.Sprintf("%s@%s.iam.gserviceaccount.com", accountName, PROJECT_ID)
+	
+	debugLog("Iniciando descarga de credenciales JSON para: %s", accountName)
+	debugLog("Email de la cuenta: %s", email)
 	
 	if outputPath == "" {
 		outputPath = fmt.Sprintf("./%s.json", accountName)
 	}
+	
+	debugLog("Ruta de archivo de salida: %s", outputPath)
 	
 	// Create JSON key
 	cmd := exec.Command("gcloud", "iam", "service-accounts", "keys", "create", outputPath,
 		"--iam-account="+email,
 		"--project="+PROJECT_ID)
 	
+	debugLogCmd(cmd)
+	debugLog("Inicio de ejecución del comando: %s", startTime.Format("2006-01-02 15:04:05.000"))
+	
 	output, err := cmd.CombinedOutput()
+	
+	elapsed := time.Since(startTime)
+	debugLog("Comando finalizado. Tiempo transcurrido: %v", elapsed)
+	
 	if err != nil {
+		debugLog("Error en la ejecución del comando: %v", err)
+		debugLog("Output del comando: %s", string(output))
 		return fmt.Errorf("error descargando credenciales JSON: %v\n%s", err, string(output))
 	}
 	
+	debugLog("Comando ejecutado exitosamente")
 	fmt.Printf("✅ Credenciales JSON descargadas: %s\n", outputPath)
+	debugLog("Tiempo total de descarga: %v", elapsed)
 	
 	return nil
 }
