@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/osmargm1202/orgm/pkg/cliconfig"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"golang.org/x/oauth2/google"
@@ -101,14 +103,51 @@ func EnsureGCloudIDTokenForAudience(audience string, quiet bool) (string, error)
 }
 
 // EnsureGCloudIDToken obtains an ID token for Cloud Run.
-// Audience is taken from `url.propuestas_api`.
+// Audience is taken from API worker using key `propuestas_api`.
 // Credentials file is expected at `<config_path>/orgmdev_google.json`.
+// DEPRECATED: Use EnsureGCloudIDTokenForAPI instead for better control
 func EnsureGCloudIDToken() (string, error) {
-    audience := viper.GetString("url.propuestas_api")
-    if audience == "" {
-        return "", fmt.Errorf("url.propuestas_api no está configurado")
-    }
-    return EnsureGCloudIDTokenForAudience(audience, false)
+	return EnsureGCloudIDTokenForAPI("propuestas_api")
+}
+
+// EnsureGCloudIDTokenForAPI obtains an ID token for Cloud Run for a specific API.
+// apiKey: the worker key to fetch the API URL (e.g., "propuestas_api", "api_calc_management", "api_admapp")
+// Credentials file is expected at `<config_path>/orgmdev_google.json`.
+func EnsureGCloudIDTokenForAPI(apiKey string) (string, error) {
+	// timestamp := time.Now().Format("2006-01-02 15:04:05.000")
+	// log.Printf("[DEBUG %s] Obteniendo URL de API desde worker para llave: %s", timestamp, apiKey)
+
+	// Test function to validate URL (simple HTTP GET request with timeout)
+	testURL := func(url string) error {
+		client := &http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Get(url)
+		if err != nil {
+			return err
+		}
+		resp.Body.Close()
+		// Accept any 2xx or 3xx status code as valid
+		if resp.StatusCode >= 400 {
+			return fmt.Errorf("HTTP %d", resp.StatusCode)
+		}
+		return nil
+	}
+
+	// Try cached config first
+	audience, err := cliconfig.GetCachedConfig(apiKey, testURL)
+	if err != nil {
+		// log.Printf("[DEBUG %s] Error obteniendo URL desde caché/worker: %v, intentando con viper como fallback", timestamp, err)
+		// Fallback to viper for backwards compatibility (only for propuestas_api)
+		if apiKey == "propuestas_api" {
+			audience = viper.GetString("url.propuestas_api")
+		}
+	}
+
+	if audience == "" {
+		return "", fmt.Errorf("url para %s no está configurado (ni en API worker ni en config)", apiKey)
+	}
+
+	// log.Printf("[DEBUG %s] URL obtenida: %s", timestamp, audience)
+	return EnsureGCloudIDTokenForAudience(audience, true)
 }
 
 // Cloud Run user management functions

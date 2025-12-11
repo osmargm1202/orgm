@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -9,14 +10,148 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/osmargm1202/orgm/inputs"
+	"github.com/osmargm1202/orgm/pkg/cliconfig"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
-var version = "v0.134"
+var version = "1"
+
+// CLIConfig represents the CLI configuration stored in config.json
+type CLIConfig struct {
+	LastVersionCheck time.Time         `json:"last_version_check"`
+	CLIVersion       string            `json:"cli_version,omitempty"`
+	APIURLs          map[string]string `json:"api_urls,omitempty"` // Cache de URLs de APIs
+}
+
+// getConfigPath returns the path to the CLI config.json file
+func getConfigPath() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("error obteniendo directorio home: %v", err)
+	}
+	configDir := filepath.Join(homeDir, ".config", "orgm")
+	// Ensure directory exists
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return "", fmt.Errorf("error creando directorio de configuración: %v", err)
+	}
+	return filepath.Join(configDir, "config.json"), nil
+}
+
+// loadCLIConfig loads the CLI configuration from config.json
+func loadCLIConfig() (*CLIConfig, error) {
+	configPath, err := getConfigPath()
+	if err != nil {
+		return nil, err
+	}
+
+	config := &CLIConfig{}
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		// File doesn't exist, return default config
+		return config, nil
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("error leyendo config.json: %v", err)
+	}
+
+	if len(data) == 0 {
+		return config, nil
+	}
+
+	if err := json.Unmarshal(data, config); err != nil {
+		return nil, fmt.Errorf("error decodificando config.json: %v", err)
+	}
+
+	return config, nil
+}
+
+// saveCLIConfig saves the CLI configuration to config.json
+func saveCLIConfig(config *CLIConfig) error {
+	configPath, err := getConfigPath()
+	if err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return fmt.Errorf("error codificando config.json: %v", err)
+	}
+
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		return fmt.Errorf("error escribiendo config.json: %v", err)
+	}
+
+	return nil
+}
+
+// checkCLIVersion checks if a newer version of the CLI is available
+// force: if true, check regardless of last check time
+func checkCLIVersion(force bool) {
+	// timestamp := time.Now().Format("2006-01-02 15:04:05.000")
+	// log.Printf("[DEBUG %s] Verificando versión del CLI (force=%v)", timestamp, force)
+
+	// Load config to check last check time
+	config, err := loadCLIConfig()
+	if err != nil {
+		// log.Printf("[DEBUG %s] Error cargando config.json: %v, continuando sin verificación", timestamp, err)
+		return
+	}
+
+	// Check if we need to verify (24 hours have passed or force is true)
+	if !force {
+		if !config.LastVersionCheck.IsZero() {
+			hoursSinceCheck := time.Since(config.LastVersionCheck).Hours()
+			// log.Printf("[DEBUG %s] Horas desde última verificación: %.2f", timestamp, hoursSinceCheck)
+			if hoursSinceCheck < 24 {
+				// log.Printf("[DEBUG %s] Menos de 24 horas desde última verificación, omitiendo verificación", timestamp)
+				return
+			}
+		}
+	}
+
+	// Get version from API
+	apiVersionStr, err := cliconfig.GetConfig("cli_version")
+	if err != nil {
+		// log.Printf("[DEBUG %s] Error obteniendo versión desde API: %v", timestamp, err)
+		return
+	}
+
+	// log.Printf("[DEBUG %s] Versión de API: %s, Versión local: %s", timestamp, apiVersionStr, version)
+
+	// Convert versions to integers for comparison
+	apiVersion, err := strconv.Atoi(apiVersionStr)
+	if err != nil {
+		// log.Printf("[DEBUG %s] Error convirtiendo versión de API a entero: %v", timestamp, err)
+		return
+	}
+
+	localVersion, err := strconv.Atoi(version)
+	if err != nil {
+		// log.Printf("[DEBUG %s] Error convirtiendo versión local a entero: %v", timestamp, err)
+		return
+	}
+
+	// Update last check time
+	config.LastVersionCheck = time.Now()
+	if err := saveCLIConfig(config); err != nil {
+		// log.Printf("[DEBUG %s] Error guardando config.json: %v", timestamp, err)
+	}
+
+	// Compare versions
+	if apiVersion > localVersion {
+		message := fmt.Sprintf("⚠️  Nueva versión disponible: %d (actual: %d). Ejecuta 'orgm update' para actualizar.", apiVersion, localVersion)
+		fmt.Fprintf(os.Stderr, "%s\n", inputs.ErrorStyle.Render(message))
+		// log.Printf("[DEBUG %s] Versión desactualizada detectada", timestamp)
+	} else {
+		// log.Printf("[DEBUG %s] Versión actualizada", timestamp)
+	}
+}
 
 var UpdateCmd = &cobra.Command{
 	Use:   "update",
@@ -70,6 +205,7 @@ func init() {
 }
 
 func initConfig() {
+	// Initialize viper for backwards compatibility (some commands may still use it)
 	viper.SetConfigName("config")
 	viper.SetConfigType("toml")
 
@@ -96,20 +232,52 @@ func initConfig() {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
 			// Config file not found; Viper will rely on env vars or defaults if any.
 			// This might be acceptable for some commands.
-			fmt.Fprintln(os.Stderr, "Warning: Config file not found. Proceeding without it or using environment variables/defaults.")
+			// Silently continue - config.toml is no longer required
 		} else {
 			// Other error reading config file
-			fmt.Fprintf(os.Stderr, "Warning: Error reading config file: %v\n", err)
+			// log.Printf("[DEBUG] Warning: Error reading config file: %v\n", err)
 		}
 	}
-	// Note: Don't print "Loaded config.toml" as it pollutes stdout for CLI commands
 
+	// Check CLI version (non-blocking, every 24 hours)
+	checkCLIVersion(false)
 }
 
 
 func updateFunc() {
+	timestamp := time.Now().Format("2006-01-02 15:04:05.000")
+	log.Printf("[DEBUG %s] Iniciando proceso de actualización para OS: %s", timestamp, runtime.GOOS)
+
+	// Force version check first
+	checkCLIVersion(true)
+
+	// Get version from API to compare
+	apiVersionStr, err := cliconfig.GetConfig("cli_version")
+	if err != nil {
+		fmt.Printf("❌ Error obteniendo versión desde API: %v\n", err)
+		log.Printf("[DEBUG %s] Error obteniendo versión desde API: %v", timestamp, err)
+		// Continue with update anyway
+	} else {
+		apiVersion, err := strconv.Atoi(apiVersionStr)
+		if err == nil {
+			localVersion, err := strconv.Atoi(version)
+			if err == nil {
+				if apiVersion == localVersion {
+					fmt.Printf("%s\n", inputs.SuccessStyle.Render("✅ Ya tienes la última versión instalada."))
+					fmt.Printf("%s\n", inputs.InfoStyle.Render(fmt.Sprintf("Versión actual: %d", localVersion)))
+					log.Printf("[DEBUG %s] Usuario ya tiene la última versión (%d)", timestamp, localVersion)
+					return
+				}
+				if apiVersion < localVersion {
+					fmt.Printf("%s\n", inputs.InfoStyle.Render(fmt.Sprintf("Tu versión (%d) es más reciente que la versión de la API (%d).", localVersion, apiVersion)))
+					log.Printf("[DEBUG %s] Versión local (%d) más reciente que API (%d)", timestamp, localVersion, apiVersion)
+				}
+			}
+		}
+	}
+
 	fmt.Printf("%s\n", inputs.TitleStyle.Render("🚀 Updating ORGM to latest version"))
-	log.Printf("[DEBUG] Starting update process for OS: %s", runtime.GOOS)
+	log.Printf("[DEBUG %s] Continuando con proceso de actualización", timestamp)
 
 	var installerURL, installerName string
 

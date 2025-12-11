@@ -24,8 +24,8 @@ var PropCmd = &cobra.Command{
 	Long:  `Gestión de propuestas con interfaz TUI usando Bubbletea. Si se proporciona una ruta a un archivo .md, se iniciará directamente el flujo de creación de propuesta.`,
 	Args:  cobra.MaximumNArgs(1),
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		// Ensure token for all subcommands
-		if _, err := EnsureGCloudIDToken(); err != nil {
+		// Ensure token for all subcommands using propuestas_api
+		if _, err := EnsureGCloudIDTokenForAPI("propuestas_api"); err != nil {
 			return fmt.Errorf("error obteniendo token: %w", err)
 		}
 		return nil
@@ -2354,9 +2354,9 @@ func createClient() (*propapi.Client, error) {
 		return nil, err
 	}
 	
-	// Create auth function that uses EnsureGCloudIDToken
+	// Create auth function that uses EnsureGCloudIDTokenForAPI
 	authFunc := func(req *http.Request) {
-		token, err := EnsureGCloudIDToken()
+		token, err := EnsureGCloudIDTokenForAPI("propuestas_api")
 		if err != nil || token == "" {
 			fmt.Printf("Warning: No se pudo obtener token de autenticación: %v\n", err)
 			return

@@ -2,15 +2,26 @@
   "tipos": {
     "Proyectos": {
       "carpetas": [
-        "01 - Documentos",
-        "02 - Planos",
-        "03 - Presupuestos",
-        "04 - Cotizaciones",
-        "05 - Facturas",
-        "06 - Pagos",
-        "07 - Comunicaciones",
-        "08 - Fotos",
-        "09 - Archivos Finales"
+        "Comunicacion",
+        "Diseño",
+        "Estudios",
+        "Calculos",
+        "Levantamientos",
+        "Entregas",
+        "Recibido",
+        "Oferta"
+      ]
+    },
+    "Administracion": {
+      "carpetas": [
+        "Compras Menores",
+        "Compras Fiscales",
+        "Compras Personas",
+        "Ventas",
+        "Reportes",
+        "Cartas",
+        "Cotizaciones",
+        "Ordenes de Compra"
       ]
     }
   }

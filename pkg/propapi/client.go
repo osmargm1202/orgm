@@ -7,11 +7,10 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/BurntSushi/toml"
+	"github.com/osmargm1202/orgm/pkg/cliconfig"
 )
 
 // Config represents the configuration structure
@@ -534,30 +533,40 @@ func (c *Client) DeleteProposal(proposalID string) error {
 
 // GetBaseURL gets the base URL from config, works for both CLI and Wails contexts
 func GetBaseURL() (string, error) {
-	// Get home directory
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("error obteniendo directorio home: %v", err)
-	}
-	
-	// Try to load config from ~/.config/orgm/config.toml
-	configPath := filepath.Join(homeDir, ".config", "orgm", "config.toml")
-	if _, err := os.Stat(configPath); err == nil {
-		configData, err := os.ReadFile(configPath)
-		if err == nil {
-			var config Config
-			if _, err := toml.Decode(string(configData), &config); err == nil {
-				if config.URL.PropuestasAPI != "" {
-					return strings.TrimSuffix(config.URL.PropuestasAPI, "/"), nil
-				}
-			}
+	// timestamp := time.Now().Format("2006-01-02 15:04:05.000")
+	// log.Printf("[DEBUG %s] Obteniendo URL base de propuestas API", timestamp)
+
+	// Test function to validate URL (simple HTTP GET request with timeout)
+	testURL := func(url string) error {
+		client := &http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Get(url)
+		if err != nil {
+			return err
 		}
+		resp.Body.Close()
+		// Accept any 2xx or 3xx status code as valid
+		if resp.StatusCode >= 400 {
+			return fmt.Errorf("HTTP %d", resp.StatusCode)
+		}
+		return nil
 	}
-	
+
+	// Try cached config first
+	baseURL, err := cliconfig.GetCachedConfig("propuestas_api", testURL)
+	if err == nil && baseURL != "" {
+		// log.Printf("[DEBUG %s] URL obtenida desde caché: %s", timestamp, baseURL)
+		return strings.TrimSuffix(baseURL, "/"), nil
+	}
+
+	// log.Printf("[DEBUG %s] No se pudo obtener URL desde caché: %v, usando fallback", timestamp, err)
+
 	// Fallback to environment variable or default
-	baseURL := os.Getenv("PROPUESTAS_API_URL")
+	baseURL = os.Getenv("PROPUESTAS_API_URL")
 	if baseURL == "" {
 		baseURL = "http://localhost:8000"
+		// log.Printf("[DEBUG %s] Usando URL por defecto: %s", timestamp, baseURL)
+	} else {
+		// log.Printf("[DEBUG %s] Usando URL de variable de entorno: %s", timestamp, baseURL)
 	}
 	return strings.TrimSuffix(baseURL, "/"), nil
 }

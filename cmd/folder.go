@@ -8,9 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/osmargm1202/orgm/inputs"
+	"github.com/osmargm1202/orgm/pkg/cliconfig"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -94,21 +96,48 @@ var FolderCmd = &cobra.Command{
 
 // InitializeAdminAPI returns Admin API configuration with GCR token
 func InitializeAdminAPI() (string, map[string]string, error) {
-	baseURL := viper.GetString("url.admapp_api")
-	if baseURL == "" {
-		return "", nil, fmt.Errorf("url.admapp_api no configurado")
+	// timestamp := time.Now().Format("2006-01-02 15:04:05.000")
+	// log.Printf("[DEBUG %s] Obteniendo URL de admapp API desde worker", timestamp)
+
+	// Test function to validate URL (simple HTTP GET request with timeout)
+	testURL := func(url string) error {
+		client := &http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Get(url)
+		if err != nil {
+			return err
+		}
+		resp.Body.Close()
+		// Accept any 2xx or 3xx status code as valid
+		if resp.StatusCode >= 400 {
+			return fmt.Errorf("HTTP %d", resp.StatusCode)
+		}
+		return nil
 	}
-	
-	token, err := EnsureGCloudIDToken()
+
+	// Try cached config first
+	baseURL, err := cliconfig.GetCachedConfig("api_admapp", testURL)
+	if err != nil {
+		// log.Printf("[DEBUG %s] Error obteniendo URL desde caché/worker: %v, intentando con viper como fallback", timestamp, err)
+		// Fallback to viper for backwards compatibility
+		baseURL = viper.GetString("url.admapp_api")
+	}
+
+	if baseURL == "" {
+		return "", nil, fmt.Errorf("url.admapp_api no configurado (ni en API worker ni en config)")
+	}
+
+	// log.Printf("[DEBUG %s] URL obtenida: %s", timestamp, baseURL)
+
+	token, err := EnsureGCloudIDTokenForAPI("api_admapp")
 	if err != nil {
 		return "", nil, fmt.Errorf("error obteniendo token: %v", err)
 	}
-	
+
 	headers := map[string]string{
 		"Authorization": "Bearer " + token,
 		"X-Tenant-Id": "1",
 	}
-	
+
 	return baseURL, headers, nil
 }
 
