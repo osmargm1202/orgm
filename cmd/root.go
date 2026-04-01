@@ -1,487 +1,73 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
-	"log"
-	"net/http"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
-	"strconv"
-	"time"
 
-	"github.com/osmargm1202/orgm/inputs"
-	"github.com/osmargm1202/orgm/pkg/cliconfig"
+	"github.com/osmargm1202/orgm/internal/config"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
 var version = "1"
 
-// CLIConfig represents the CLI configuration stored in config.json
-type CLIConfig struct {
-	LastVersionCheck time.Time         `json:"last_version_check"`
-	CLIVersion       string            `json:"cli_version,omitempty"`
-	APIURLs          map[string]string `json:"api_urls,omitempty"` // Cache de URLs de APIs
-}
-
-// getConfigPath returns the path to the CLI config.json file
-func getConfigPath() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("error obteniendo directorio home: %v", err)
-	}
-	configDir := filepath.Join(homeDir, ".config", "orgm")
-	// Ensure directory exists
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		return "", fmt.Errorf("error creando directorio de configuración: %v", err)
-	}
-	return filepath.Join(configDir, "config.json"), nil
-}
-
-// loadCLIConfig loads the CLI configuration from config.json
-func loadCLIConfig() (*CLIConfig, error) {
-	configPath, err := getConfigPath()
-	if err != nil {
-		return nil, err
-	}
-
-	config := &CLIConfig{}
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		// File doesn't exist, return default config
-		return config, nil
-	}
-
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return nil, fmt.Errorf("error leyendo config.json: %v", err)
-	}
-
-	if len(data) == 0 {
-		return config, nil
-	}
-
-	if err := json.Unmarshal(data, config); err != nil {
-		return nil, fmt.Errorf("error decodificando config.json: %v", err)
-	}
-
-	return config, nil
-}
-
-// saveCLIConfig saves the CLI configuration to config.json
-func saveCLIConfig(config *CLIConfig) error {
-	configPath, err := getConfigPath()
-	if err != nil {
-		return err
-	}
-
-	data, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
-		return fmt.Errorf("error codificando config.json: %v", err)
-	}
-
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
-		return fmt.Errorf("error escribiendo config.json: %v", err)
-	}
-
-	return nil
-}
-
-// checkCLIVersion checks if a newer version of the CLI is available
-// force: if true, check regardless of last check time
-func checkCLIVersion(force bool) {
-	// timestamp := time.Now().Format("2006-01-02 15:04:05.000")
-	// log.Printf("[DEBUG %s] Verificando versión del CLI (force=%v)", timestamp, force)
-
-	// Load config to check last check time
-	config, err := loadCLIConfig()
-	if err != nil {
-		// log.Printf("[DEBUG %s] Error cargando config.json: %v, continuando sin verificación", timestamp, err)
-		return
-	}
-
-	// Check if we need to verify (24 hours have passed or force is true)
-	if !force {
-		if !config.LastVersionCheck.IsZero() {
-			hoursSinceCheck := time.Since(config.LastVersionCheck).Hours()
-			// log.Printf("[DEBUG %s] Horas desde última verificación: %.2f", timestamp, hoursSinceCheck)
-			if hoursSinceCheck < 24 {
-				// log.Printf("[DEBUG %s] Menos de 24 horas desde última verificación, omitiendo verificación", timestamp)
-				return
-			}
-		}
-	}
-
-	// Get version from API
-	apiVersionStr, err := cliconfig.GetConfig("cli_version")
-	if err != nil {
-		// log.Printf("[DEBUG %s] Error obteniendo versión desde API: %v", timestamp, err)
-		return
-	}
-
-	// log.Printf("[DEBUG %s] Versión de API: %s, Versión local: %s", timestamp, apiVersionStr, version)
-
-	// Convert versions to integers for comparison
-	apiVersion, err := strconv.Atoi(apiVersionStr)
-	if err != nil {
-		// log.Printf("[DEBUG %s] Error convirtiendo versión de API a entero: %v", timestamp, err)
-		return
-	}
-
-	localVersion, err := strconv.Atoi(version)
-	if err != nil {
-		// log.Printf("[DEBUG %s] Error convirtiendo versión local a entero: %v", timestamp, err)
-		return
-	}
-
-	// Update last check time
-	config.LastVersionCheck = time.Now()
-	if err := saveCLIConfig(config); err != nil {
-		// log.Printf("[DEBUG %s] Error guardando config.json: %v", timestamp, err)
-	}
-
-	// Compare versions
-	if apiVersion > localVersion {
-		message := fmt.Sprintf("⚠️  Nueva versión disponible: %d (actual: %d). Ejecuta 'orgm update' para actualizar.", apiVersion, localVersion)
-		fmt.Fprintf(os.Stderr, "%s\n", inputs.ErrorStyle.Render(message))
-		// log.Printf("[DEBUG %s] Versión desactualizada detectada", timestamp)
-	} else {
-		// log.Printf("[DEBUG %s] Versión actualizada", timestamp)
-	}
-}
-
-var UpdateCmd = &cobra.Command{
-	Use:   "update",
-	Short: "Update ORGM to the latest version",
-	Long:  `Downloads the latest ORGM installer and updates the binary automatically.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		updateFunc()
-	},
-}
-
-
-var versionCmd = &cobra.Command{
-	Use:   "version",
-	Short: "Show the version of the application",
-	Run: func(cmd *cobra.Command, args []string) {
-		versionFunc()
-	},
-}
-
-func versionFunc() {
-	fmt.Println(inputs.InfoStyle.Render("Versión: " + version))
-}
-
+// RootCmd represents the base command when called without any subcommands
 var RootCmd = &cobra.Command{
 	Use:   "orgm",
 	Short: "CLI de ORGM para funciones de la organizacion",
 	Long:  `Herramientas de la organizacion ORGM.`,
-	// Uncomment the following line if your bare application
-	// has an action associated with it:
-	// Run: func(cmd *cobra.Command, args []string) { },
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
-// This is called by main.main(). It only needs to happen once to the RootCmd.
 func Execute() {
-	// Check for -v or --version before executing the command tree
-
-	err := RootCmd.Execute()
-	if err != nil {
+	if err := RootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
 }
 
 func init() {
 	cobra.OnInitialize(initConfig)
-	RootCmd.AddCommand(versionCmd)
-	RootCmd.AddCommand(UpdateCmd)
-	RootCmd.AddCommand(PropCmd)
-	RootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 
+	// Add version command
+	RootCmd.AddCommand(versionCmd)
+
+	// Add config management command
+	RootCmd.AddCommand(configCmd)
+}
+
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Show the version of the application",
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Printf("orgm version %s\n", version)
+	},
 }
 
 func initConfig() {
-	// Initialize viper for backwards compatibility (some commands may still use it)
-	viper.SetConfigName("config")
-	viper.SetConfigType("toml")
-
-	// First check if config.toml exists in current directory
-	if _, err := os.Stat("config.toml"); err == nil {
-		viper.AddConfigPath(".") // Path: current directory
+	// Initialize viper configuration
+	paths, err := config.GetPaths()
+	if err == nil {
+		viper.SetConfigFile(paths.GlobalConfig)
+		viper.Set("config_path", paths.ConfigDir)
 	} else {
-		// If not found in current directory, use home directory config
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			log.Fatalf("Error al obtener el directorio home: %v", err)
-		}
-
-		configPath := filepath.Join(homeDir, ".config", "orgm")
-		viper.Set("config_path", configPath)
-		viper.AddConfigPath(configPath) // Path: ~/.config/orgm
-		viper.AddConfigPath(".")        // Path: current directory as fallback
+		// Fallback to current directory
+		viper.SetConfigName("config")
+		viper.SetConfigType("yaml")
+		viper.AddConfigPath(".")
 	}
 
-	viper.AutomaticEnv() // Read in environment variables that match
+	viper.AutomaticEnv()
 
 	// Attempt to read the main configuration file
-	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-			// Config file not found; Viper will rely on env vars or defaults if any.
-			// This might be acceptable for some commands.
-			// Silently continue - config.toml is no longer required
-		} else {
-			// Other error reading config file
-			// log.Printf("[DEBUG] Warning: Error reading config file: %v\n", err)
-		}
-	}
-
-	// Check CLI version (non-blocking, every 24 hours)
-	checkCLIVersion(false)
+	// Config file not found is OK - we'll create it as needed
+	_ = viper.ReadInConfig()
 }
 
-
-func updateFunc() {
-	timestamp := time.Now().Format("2006-01-02 15:04:05.000")
-	log.Printf("[DEBUG %s] Iniciando proceso de actualización para OS: %s", timestamp, runtime.GOOS)
-
-	// Force version check first
-	checkCLIVersion(true)
-
-	// Get version from API to compare
-	apiVersionStr, err := cliconfig.GetConfig("cli_version")
+// GetConfigPath returns the path to the CLI config directory
+func GetConfigPath() (string, error) {
+	paths, err := config.GetPaths()
 	if err != nil {
-		fmt.Printf("❌ Error obteniendo versión desde API: %v\n", err)
-		log.Printf("[DEBUG %s] Error obteniendo versión desde API: %v", timestamp, err)
-		// Continue with update anyway
-	} else {
-		apiVersion, err := strconv.Atoi(apiVersionStr)
-		if err == nil {
-			localVersion, err := strconv.Atoi(version)
-			if err == nil {
-				if apiVersion == localVersion {
-					fmt.Printf("%s\n", inputs.SuccessStyle.Render("✅ Ya tienes la última versión instalada."))
-					fmt.Printf("%s\n", inputs.InfoStyle.Render(fmt.Sprintf("Versión actual: %d", localVersion)))
-					log.Printf("[DEBUG %s] Usuario ya tiene la última versión (%d)", timestamp, localVersion)
-					return
-				}
-				if apiVersion < localVersion {
-					fmt.Printf("%s\n", inputs.InfoStyle.Render(fmt.Sprintf("Tu versión (%d) es más reciente que la versión de la API (%d).", localVersion, apiVersion)))
-					log.Printf("[DEBUG %s] Versión local (%d) más reciente que API (%d)", timestamp, localVersion, apiVersion)
-				}
-			}
-		}
+		return "", err
 	}
-
-	fmt.Printf("%s\n", inputs.TitleStyle.Render("🚀 Updating ORGM to latest version"))
-	log.Printf("[DEBUG %s] Continuando con proceso de actualización", timestamp)
-
-	var installerURL, installerName string
-
-	switch runtime.GOOS {
-	case "windows":
-		installerURL = "https://raw.githubusercontent.com/osmargm1202/orgm/main/install.bat"
-		installerName = "install.bat"
-	case "linux", "darwin":
-		installerURL = "https://raw.githubusercontent.com/osmargm1202/orgm/main/install.sh"
-		installerName = "install.sh"
-	default:
-		fmt.Printf("❌ Unsupported operating system: %s\n", runtime.GOOS)
-		log.Printf("[DEBUG] Unsupported OS: %s", runtime.GOOS)
-		return
-	}
-
-	log.Printf("[DEBUG] Installer URL: %s", installerURL)
-	log.Printf("[DEBUG] Installer name: %s", installerName)
-
-	// Download the installer
-	fmt.Printf("%s\n", inputs.InfoStyle.Render("📥 Downloading installer..."))
-	log.Printf("[DEBUG] Downloading installer from: %s", installerURL)
-
-	resp, err := http.Get(installerURL)
-	if err != nil {
-		fmt.Printf("❌ Error downloading installer: %v\n", err)
-		log.Printf("[DEBUG] Error downloading installer: %v", err)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		fmt.Printf("❌ Error: HTTP %d when downloading installer\n", resp.StatusCode)
-		log.Printf("[DEBUG] HTTP error when downloading installer: %d", resp.StatusCode)
-		return
-	}
-
-	log.Printf("[DEBUG] Download successful. Status code: %d, Content-Length: %d", resp.StatusCode, resp.ContentLength)
-
-	// Create temporary installer file
-	tempFile := filepath.Join(os.TempDir(), installerName)
-	log.Printf("[DEBUG] Creating temporary file: %s", tempFile)
-
-	out, err := os.Create(tempFile)
-	if err != nil {
-		fmt.Printf("❌ Error creating temporary file: %v\n", err)
-		log.Printf("[DEBUG] Error creating temporary file: %v", err)
-		return
-	}
-
-	// Copy installer content to temporary file
-	bytesWritten, err := io.Copy(out, resp.Body)
-	if err != nil {
-		out.Close()
-		fmt.Printf("❌ Error writing installer: %v\n", err)
-		log.Printf("[DEBUG] Error writing installer: %v", err)
-		os.Remove(tempFile)
-		return
-	}
-	out.Close()
-
-	log.Printf("[DEBUG] Written %d bytes to temporary file", bytesWritten)
-
-	// Validate that file was written correctly
-	fileInfo, err := os.Stat(tempFile)
-	if err != nil {
-		fmt.Printf("❌ Error validating downloaded file: %v\n", err)
-		log.Printf("[DEBUG] Error validating downloaded file: %v", err)
-		os.Remove(tempFile)
-		return
-	}
-
-	if fileInfo.Size() == 0 {
-		fmt.Printf("❌ Error: Downloaded file is empty\n")
-		log.Printf("[DEBUG] Downloaded file is empty")
-		os.Remove(tempFile)
-		return
-	}
-
-	log.Printf("[DEBUG] File validated. Size: %d bytes", fileInfo.Size())
-
-	// Make installer executable on Unix systems
-	if runtime.GOOS != "windows" {
-		log.Printf("[DEBUG] Setting executable permissions on: %s", tempFile)
-		if err := os.Chmod(tempFile, 0755); err != nil {
-			fmt.Printf("❌ Error setting executable permissions: %v\n", err)
-			log.Printf("[DEBUG] Error setting executable permissions: %v", err)
-			os.Remove(tempFile)
-			return
-		}
-		log.Printf("[DEBUG] Executable permissions set successfully")
-	}
-
-	// Special handling for Windows: cannot replace running executable
-	if runtime.GOOS == "windows" {
-		fmt.Printf("%s\n", inputs.InfoStyle.Render("⚠️  On Windows, the updater cannot replace the running executable."))
-		fmt.Printf("%s\n", inputs.InfoStyle.Render("   The installer will open in a new window. Please CLOSE this terminal or any running orgm.exe before continuing the update."))
-		fmt.Printf("%s\n", inputs.InfoStyle.Render("   Press ENTER to continue and launch the installer..."))
-		fmt.Scanln()
-
-		log.Printf("[DEBUG] Launching Windows installer in new window: %s", tempFile)
-		// Start installer in a new window and exit this process
-		cmd := exec.Command("cmd", "/C", "start", "", tempFile)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		cmd.Stdin = os.Stdin
-
-		err = cmd.Start()
-		if err != nil {
-			fmt.Printf("❌ Error launching installer: %v\n", err)
-			log.Printf("[DEBUG] Error launching installer: %v", err)
-			os.Remove(tempFile)
-			return
-		}
-
-		log.Printf("[DEBUG] Installer launched successfully. PID: %d", cmd.Process.Pid)
-
-		// Clean up temporary file after a short delay (let installer copy itself if needed)
-		go func(f string) {
-			time.Sleep(30 * time.Second)
-			if err := os.Remove(f); err != nil {
-				log.Printf("[DEBUG] Error removing temporary file after delay: %v", err)
-			} else {
-				log.Printf("[DEBUG] Temporary file removed after delay: %s", f)
-			}
-		}(tempFile)
-
-		fmt.Printf("%s\n", inputs.SuccessStyle.Render("✅ Installer launched. Please follow the instructions in the new window."))
-		return
-	}
-
-	// For Linux/macOS, run installer directly
-	fmt.Printf("%s\n", inputs.InfoStyle.Render("🔧 Running installer..."))
-	log.Printf("[DEBUG] Executing installer script: %s", tempFile)
-
-	// Try to execute directly first (since we set executable permissions)
-	cmd := exec.Command(tempFile)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-
-	err = cmd.Run()
-	if err != nil {
-		// Fallback: try with shell detection
-		log.Printf("[DEBUG] Direct execution failed, trying with shell. Error: %v", err)
-
-		var shell string
-		// Try to detect shell from environment
-		if shellEnv := os.Getenv("SHELL"); shellEnv != "" {
-			shell = shellEnv
-			log.Printf("[DEBUG] Using shell from SHELL env: %s", shell)
-		} else {
-			// Fallback to common shells
-			shells := []string{"bash", "sh", "zsh"}
-			for _, s := range shells {
-				if _, err := exec.LookPath(s); err == nil {
-					shell = s
-					log.Printf("[DEBUG] Found shell in PATH: %s", shell)
-					break
-				}
-			}
-		}
-
-		if shell == "" {
-			fmt.Printf("❌ Error running installer: %v\n", err)
-			log.Printf("[DEBUG] No suitable shell found and direct execution failed")
-			os.Remove(tempFile)
-			return
-		}
-
-		log.Printf("[DEBUG] Retrying with shell: %s", shell)
-		cmd = exec.Command(shell, tempFile)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		cmd.Stdin = os.Stdin
-
-		err = cmd.Run()
-		if err != nil {
-			fmt.Printf("❌ Error running installer: %v\n", err)
-			log.Printf("[DEBUG] Error running installer with shell %s: %v", shell, err)
-			os.Remove(tempFile)
-			return
-		}
-	}
-
-	log.Printf("[DEBUG] Installer executed successfully")
-
-	// Clean up temporary file
-	if err := os.Remove(tempFile); err != nil {
-		log.Printf("[DEBUG] Warning: Could not remove temporary file: %v", err)
-	} else {
-		log.Printf("[DEBUG] Temporary file removed: %s", tempFile)
-	}
-
-	fmt.Printf("%s\n", inputs.SuccessStyle.Render("✅ ORGM updated successfully!"))
-	fmt.Printf("%s\n", inputs.InfoStyle.Render("💡 If this is your first time, you may need to open a new terminal or run:"))
-
-	switch runtime.GOOS {
-	case "windows":
-		fmt.Printf("%s\n", inputs.InfoStyle.Render("   • Open a new Command Prompt or PowerShell"))
-	case "linux", "darwin":
-		fmt.Printf("%s\n", inputs.InfoStyle.Render("   • source ~/.bashrc (or ~/.zshrc)"))
-		fmt.Printf("%s\n", inputs.InfoStyle.Render("   • Or open a new terminal"))
-	}
-
-	log.Printf("[DEBUG] Update process completed successfully")
+	return paths.ConfigDir, nil
 }
